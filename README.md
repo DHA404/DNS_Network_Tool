@@ -11,7 +11,7 @@
 
 一款专业的无图形界面、基于终端交互的域名解析与网络测试工具，支持智能DNS服务器选择、并行解析、网络性能测试和hosts文件自动生成。
 
-[English Version](README_EN.md) | [快速开始](#快速开始) | [使用指南](#使用指南) | [常见问题](#常见问题)
+[English Version](README_EN.md) |[未来计划](<Future Plans_CN.md>)|[Future plan](<Future Plans_EN.md>)| [快速开始](#快速开始) | [使用指南](#使用指南) | [常见问题](#常见问题)
 
 </div>
 
