@@ -101,11 +101,15 @@
 - 📊 **动态进度指示** - 实时任务进度展示
 
 ---
+[1.png (571×195)](https://raw.githubusercontent.com/DHA404/DNS_Network_Tool/refs/heads/main/readme/photos/1.png?raw=ture)
 
+[2.png (1094×982)](https://raw.githubusercontent.com/DHA404/DNS_Network_Tool/refs/heads/main/readme/photos/2.png?raw=ture)
 
+[3.png (1112×977)](https://raw.githubusercontent.com/DHA404/DNS_Network_Tool/refs/heads/main/readme/photos/3.png?raw=ture)
+
+[4.png (1097×948)](https://raw.githubusercontent.com/DHA404/DNS_Network_Tool/refs/heads/main/readme/photos/4.png?raw=ture)
 
 ---
-
 ## 📥 下载工具
 
 ### 🚀 方法一：GitHub 克隆（推荐）
