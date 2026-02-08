@@ -102,10 +102,22 @@ A professional terminal-based domain name resolution and network testing tool wi
 ### ⚡ Advanced Features
 
 - 🏃 **Performance Benchmark Testing** - Comprehensive performance assessment tools
+
 - 🔄 **Configuration Hot Reload** - Configuration updates without restart
+
 - 📝 **Detailed Logging** - Complete operation logs
+
 - 🛡️ **Comprehensive Exception Handling** - Robust error handling mechanisms
+
 - 📊 **Dynamic Progress Indication** - Real-time task progress display
+
+---
+
+
+
+---
+
+
 
 ## 📥 Download
 
