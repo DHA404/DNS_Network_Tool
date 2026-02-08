@@ -1,0 +1,5 @@
+dnspython>=2.8.0
+requests>=2.32.0
+colorama>=0.4.6
+prettytable>=3.10.0
+psutil>=5.9.0
