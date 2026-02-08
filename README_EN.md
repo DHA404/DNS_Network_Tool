@@ -145,8 +145,8 @@ cd DNS_Network_Tool
 |-------------|---------|-------------|
 | Operating System | Windows 7 | Windows 10/11 |
 | Python | 3.7+ | 3.9+ |
-| Memory | 512MB | 2GB+ |
-| Disk Space | 50MB | 100MB+ |
+| Reserved operating memory | 40MB | 100MB+ |
+| Disk Space | 20MB | 50MB+ |
 
 ## 📦 Installation
 
