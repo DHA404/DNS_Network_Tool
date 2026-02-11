@@ -17,9 +17,17 @@ from dns_service import DNSService
 from network_service import NetworkService
 from result_processor import ResultProcessor
 from report_generator import ReportGenerator
+from init_config import check_and_prompt_init, InitConfigManager
 
 # 初始化配置管理
 config_manager = ConfigManager()
+config = config_manager.get_config()
+
+# 检查并提示初始化（首次运行）
+if not check_and_prompt_init(config_manager):
+    sys.exit(0)
+
+# 重新加载配置（可能已更新）
 config = config_manager.get_config()
 
 # 初始化日志管理
@@ -54,7 +62,8 @@ class DNSNetworkTool:
         print("2. 配置 DNS 服务器")
         print("3. 配置测试参数")
         print("4. 启动/关闭开发者模式")
-        print("5. 退出程序")
+        print("5. 初始化配置向导")
+        print("6. 退出程序")
         print(TerminalUtils.colored("=" * 60, Color.BLUE, Color.BOLD))
 
     def run(self):
@@ -72,7 +81,7 @@ class DNSNetworkTool:
         while True:
             logger.info("显示主菜单")
             self.display_menu()
-            choice = input("请输入选项 (1-5): ")
+            choice = input("请输入选项 (1-6): ")
             logger.info(f"用户输入选项: {choice}")
 
             if choice == "1":
@@ -117,7 +126,21 @@ class DNSNetworkTool:
                     logger.info("日志级别已设置为INFO")
                 
                 TerminalUtils.pause()
-            elif choice == "4":
+            elif choice == "5":
+                logger.info("选择了初始化配置向导")
+                if is_dev_mode:
+                    logger.debug("开始执行初始化配置向导")
+                performance_monitor.start_section("初始化配置向导")
+                init_manager = InitConfigManager(self.config_manager)
+                init_manager.show_init_menu()
+                # 重新加载配置
+                self.config = self.config_manager.get_config()
+                self.dns_servers = self.config["dns_servers"]
+                self.test_params = self.config["test_params"]
+                performance_monitor.end_section("初始化配置向导")
+                if is_dev_mode:
+                    logger.debug("初始化配置向导执行完毕")
+            elif choice == "6":
                 logger.info("选择了退出程序")
                 if is_dev_mode:
                     logger.debug("开始执行退出程序功能")
@@ -129,6 +152,17 @@ class DNSNetworkTool:
                 if is_dev_mode:
                     logger.debug("程序执行完毕，正在退出")
                 break
+            elif choice == "802":
+                logger.info("选择了重置初始化记录")
+                if is_dev_mode:
+                    logger.debug("开始执行重置初始化记录")
+                performance_monitor.start_section("重置初始化记录")
+                init_manager = InitConfigManager(self.config_manager)
+                init_manager.reset_init_record()
+                performance_monitor.end_section("重置初始化记录")
+                if is_dev_mode:
+                    logger.debug("重置初始化记录执行完毕")
+                TerminalUtils.pause()
             else:
                 logger.warning(f"无效选项: {choice}")
                 print(TerminalUtils.colored("无效选项，请重新输入！", Color.RED))

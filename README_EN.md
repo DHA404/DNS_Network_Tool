@@ -111,6 +111,15 @@ A professional terminal-based domain name resolution and network testing tool wi
 
 - 📊 **Dynamic Progress Indication** - Real-time task progress display
 
+### 🎯 Initialization Configuration
+
+- 🚀 **First-Run Smart Guide** - Automatically detects first run and provides initialization wizard
+- ⚙️ **System Performance Auto-Detection** - Automatically tests system max concurrent connections, thread count, and DNS resolution threads
+- 🔧 **Intelligent Parameter Optimization** - Automatically calculates optimal configuration based on test results (2/3 of max values)
+- 🌍 **DNS Server Auto-Filtering** - Sequentially tests all DNS servers, automatically removes unavailable or slow-responding servers
+- 💾 **Auto-Save Configuration** - Optimized configuration automatically saved to config.json
+- 🔄 **Re-initialization Support** - Supports re-running initialization wizard or resetting initialization record at any time
+
 ---
 ![1.png](https://github.com/DHA404/DNS_Network_Tool/blob/main/readme/photos/1.png?raw=true)
 
@@ -289,9 +298,10 @@ $ python main.py
     2. Configure DNS Servers
     3. Configure Test Parameters
     4. Enable/Disable Developer Mode
-    5. Exit Program
+    5. Initialization Configuration Wizard
+    6. Exit Program
 
-Please enter option number [1-5]: _
+Please enter option number [1-6]: _
 ```
 
 #### Step 2: Select Test Function
@@ -302,7 +312,8 @@ Choose based on your needs:
 - **Option 2**: Manage DNS server list
 - **Option 3**: Adjust test parameters
 - **Option 4**: Enable developer mode for detailed logs
-- **Option 5**: Safely exit the program
+- **Option 5**: Run initialization configuration wizard
+- **Option 6**: Safely exit the program
 
 #### Step 3: Domain Input Method
 
@@ -520,7 +531,8 @@ python main.py
 2. Configure DNS Servers
 3. Configure Test Parameters
 4. Enable/Disable Developer Mode
-5. Exit Program
+5. Initialization Configuration Wizard
+6. Exit Program
 ```
 
 ### Feature Description
@@ -576,7 +588,17 @@ Toggle developer mode:
 - Enable: Show detailed debug logs
 - Disable: Show only basic information
 
-#### 5. Exit Program
+#### 5. Initialization Configuration Wizard
+
+Run the initialization configuration wizard:
+
+- **First-Run Auto-Prompt**: Program automatically prompts for initialization on first run
+- **System Performance Test**: Automatically detects system's max concurrent connections, thread count, and DNS resolution threads
+- **DNS Server Filtering**: Tests and filters available DNS servers
+- **Intelligent Parameter Optimization**: Automatically optimizes configuration parameters based on test results
+- **Manual Run**: Can be re-run at any time by selecting "Initialization Configuration Wizard" from the main menu
+
+#### 6. Exit Program
 
 Safely exit program, generate performance report (if developer mode enabled).
 

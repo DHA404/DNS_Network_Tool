@@ -221,5 +221,7 @@
         "host": "0.0.0.0",
         "port": 8080,
         "theme": "default"
-    }
+    },
+    "init_skipped": true,
+    "init_skip_time": "2026-02-11T15:19:35.641319"
 }
