@@ -438,7 +438,8 @@ class InitConfigManager:
             是否成功重置
         """
         try:
-            config = self.config_manager.get_config()
+            # 直接访问config_manager的config属性
+            config = self.config_manager.config
             
             # 检查是否存在初始化记录（包括已完成或已跳过）
             has_record = config.get("initialized", False) or config.get("init_skipped", False)
@@ -453,12 +454,15 @@ class InitConfigManager:
                 return False
             
             # 删除所有初始化相关标记
+            removed = False
             for key in ["initialized", "init_time", "init_skipped", "init_skip_time"]:
                 if key in config:
                     del config[key]
+                    removed = True
             
-            # 保存配置
-            self.config_manager.update_config(config)
+            # 直接保存配置
+            if removed:
+                self.config_manager.save_config()
             
             print(TerminalUtils.colored("\n初始化记录已重置！", Color.GREEN))
             print("下次启动程序时将重新提示初始化配置向导。")
