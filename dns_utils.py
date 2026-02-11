@@ -229,7 +229,7 @@ class DNSResolver:
     def _resolve_with_retry(self, domain: str, dns_server: str, timeout: float) -> Dict[str, Any]:
         """带重试的DNS解析（指数退避）
         
-        使用指数退避策略进行重试，最多重试3次。
+        使用指数退避策略进行重试，最多重试2次。
         
         Args:
             domain: 要解析的域名
@@ -248,7 +248,7 @@ class DNSResolver:
         Raises:
             Exception: 所有重试失败后抛出最后一个异常
         """
-        max_retries = 3
+        max_retries = 2
         last_error = None
 
         for attempt in range(max_retries):
@@ -257,9 +257,8 @@ class DNSResolver:
             except Exception as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    delay = 0.5 * (2 ** attempt)
+                    delay = 0.2 * (2 ** attempt)
                     time.sleep(delay)
-
         raise last_error
 
     def _do_resolve(self, domain: str, dns_server: str, timeout: float) -> Dict[str, Any]:
@@ -292,20 +291,24 @@ class DNSResolver:
             resolver.nameservers = [dns_server]
             resolver.timeout = timeout
             resolver.lifetime = timeout
-
             ips = []
-            try:
-                a_answers = resolver.resolve(domain, "A")
-                ips.extend([rdata.address for rdata in a_answers])
-            except Exception as e:
-                pass
-
-            try:
-                aaaa_answers = resolver.resolve(domain, "AAAA")
-                ips.extend([rdata.address for rdata in aaaa_answers])
-            except Exception as e:
-                pass
-
+            
+            def resolve_record(record_type):
+                """解析指定类型的DNS记录"""
+                try:
+                    answers = resolver.resolve(domain, record_type)
+                    return [rdata.address for rdata in answers]
+                except Exception:
+                    return []
+            
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                future_a = executor.submit(resolve_record, "A")
+                future_aaaa = executor.submit(resolve_record, "AAAA")
+                
+                ips.extend(future_a.result())
+                ips.extend(future_aaaa.result())
+            
             if not ips:
                 raise Exception(f"DNS解析失败: 未从服务器 {dns_server} 解析到任何IP地址")
 
@@ -417,7 +420,7 @@ class DNSResolver:
                 "speed_tier": "failed"
             }
 
-    def resolve_domain_parallel(self, domain):
+    def resolve_domain_parallel(self, domain, fast_fail=True):
         """并行使用多个DNS服务器解析域名
         
         使用线程池并发向所有配置的DNS服务器发送解析请求，
@@ -425,6 +428,7 @@ class DNSResolver:
         
         Args:
             domain: 要解析的域名
+            fast_fail: 是否快速失败模式（收到第一个成功结果后立即返回）
             
         Returns:
             List[Dict[str, Any]]: 解析结果列表，每个元素包含：
@@ -436,7 +440,8 @@ class DNSResolver:
                 - speed_tier: 服务器速度等级
         """
         results = []
-
+        success_count = 0
+        
         max_threads = min(self.dns_threads, len(self.dns_servers))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
@@ -444,14 +449,27 @@ class DNSResolver:
                 executor.submit(self.resolve_domain, domain, dns_server): dns_server for dns_server in self.dns_servers
             }
 
-            for future in concurrent.futures.as_completed(future_to_dns):
-                dns_server = future_to_dns[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    results.append({"dns_server": dns_server, "ips": [], "success": False, "elapsed": 0, "error": str(e)})
-
+            if fast_fail:
+                for future in concurrent.futures.as_completed(future_to_dns):
+                    dns_server = future_to_dns[future]
+                    try:
+                        result = future.result()
+                        results.append(result)
+                        if result["success"]:
+                            success_count += 1
+                    except Exception as e:
+                        results.append({"dns_server": dns_server, "ips": [], "success": False, "elapsed": 0, "error": str(e)})
+                    
+                    if success_count >= 5:
+                        break
+            else:
+                for future in concurrent.futures.as_completed(future_to_dns):
+                    dns_server = future_to_dns[future]
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as e:
+                        results.append({"dns_server": dns_server, "ips": [], "success": False, "elapsed": 0, "error": str(e)})
         return results
 
     def get_unique_ips(self, results):
@@ -572,12 +590,11 @@ class DNSResolverWrapper:
         self.dns_resolver = DNSResolver(dns_servers, dns_threads=dns_threads)
         self.dns_threads = dns_threads
 
-    def resolve(self, domain):
+    def resolve(self, domain, fast_fail=True):
         """完整的DNS解析流程"""
         TerminalUtils.print_status(f"开始解析域名: {domain}", "INFO")
-
         # 1. 使用多个DNS服务器并行解析
-        results = self.dns_resolver.resolve_domain_parallel(domain)
+        results = self.dns_resolver.resolve_domain_parallel(domain, fast_fail=fast_fail)
 
         # 2. 分析解析结果
         analysis = DNSAnalysis.analyze_results(results)
@@ -612,23 +629,20 @@ class DNSResolverWrapper:
 
         return final_results
 
-    def parallel_resolve(self, domains):
+    def parallel_resolve(self, domains, fast_fail=True):
         """并行解析多个域名（自动去除重复域名）"""
         # 去重：确保每个唯一域名只处理一次
         unique_domains = list(set(domains))
         if len(unique_domains) != len(domains):
             print(f"检测到重复域名，已自动去重：{len(domains)} 个 → {len(unique_domains)} 个")
-
         domain_results = {}
 
         # 使用配置的DNS线程数
         max_workers = min(self.dns_threads, len(unique_domains))
-
         # 使用ThreadPoolExecutor并行解析多个域名
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有解析任务
-            future_to_domain = {executor.submit(self.resolve, domain): domain for domain in unique_domains}
-
+            future_to_domain = {executor.submit(self.resolve, domain, fast_fail=fast_fail): domain for domain in unique_domains}
             # 收集结果
             for future in concurrent.futures.as_completed(future_to_domain):
                 domain = future_to_domain[future]

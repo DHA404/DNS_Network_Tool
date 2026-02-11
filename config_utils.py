@@ -495,8 +495,8 @@ class ConfigEditor:
                 # 修改ping测试次数
                 try:
                     current_value = params.get("ping_count", 10)
-                    value = int(input(f"当前ping测试次数: {current_value}\n请输入新的ping测试次数 (1-100): "))
-                    if 1 <= value <= 100:
+                    value = int(input(f"当前ping测试次数: {current_value}\n请输入新的ping测试次数 (1-500): "))
+                    if 1 <= value <= 500:
                         success, message = self.config_manager.update_test_param("ping_count", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -508,8 +508,8 @@ class ConfigEditor:
                 # 修改ping超时时间
                 try:
                     current_value = params.get("ping_timeout", 2)
-                    value = float(input(f"当前ping超时时间: {current_value}秒\n请输入新的ping超时时间 (0.1-10): "))
-                    if 0.1 <= value <= 10:
+                    value = float(input(f"当前ping超时时间: {current_value}秒\n请输入新的ping超时时间 (0.1-30): "))
+                    if 0.1 <= value <= 30:
                         success, message = self.config_manager.update_test_param("ping_timeout", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -521,8 +521,8 @@ class ConfigEditor:
                 # 修改ping测试间隔
                 try:
                     current_value = params.get("ping_interval", 0.5)
-                    value = float(input(f"当前ping测试间隔: {current_value}秒\n请输入新的ping测试间隔时间 (0.1-5): "))
-                    if 0.1 <= value <= 5:
+                    value = float(input(f"当前ping测试间隔: {current_value}秒\n请输入新的ping测试间隔时间 (0.01-10): "))
+                    if 0.01 <= value <= 10:
                         success, message = self.config_manager.update_test_param("ping_interval", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -534,8 +534,8 @@ class ConfigEditor:
                 # 修改速率测试时长
                 try:
                     current_value = params.get("test_duration", 10)
-                    value = int(input(f"当前速率测试时长: {current_value}秒\n请输入新的速率测试时长 (1-300): "))
-                    if 1 <= value <= 300:
+                    value = int(input(f"当前速率测试时长: {current_value}秒\n请输入新的速率测试时长 (1-600): "))
+                    if 1 <= value <= 600:
                         success, message = self.config_manager.update_test_param("test_duration", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -547,8 +547,8 @@ class ConfigEditor:
                 # 修改数据包大小
                 try:
                     current_value = params.get("packet_size", 1024)
-                    value = int(input(f"当前数据包大小: {current_value}字节\n请输入新的数据包大小 (64-65536): "))
-                    if 64 <= value <= 65536:
+                    value = int(input(f"当前数据包大小: {current_value}字节\n请输入新的数据包大小 (64-65535): "))
+                    if 64 <= value <= 65535:
                         success, message = self.config_manager.update_test_param("packet_size", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -560,8 +560,8 @@ class ConfigEditor:
                 # 修改并发连接数
                 try:
                     current_value = params.get("concurrent_connections", 4)
-                    value = int(input(f"当前并发连接数: {current_value}\n请输入新的并发连接数 (1-100): "))
-                    if 1 <= value <= 100:
+                    value = int(input(f"当前并发连接数: {current_value}\n请输入新的并发连接数 (1-500): "))
+                    if 1 <= value <= 500:
                         success, message = self.config_manager.update_test_param("concurrent_connections", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -573,8 +573,8 @@ class ConfigEditor:
                 # 修改最大线程数
                 try:
                     current_value = params.get("max_threads", 30)
-                    value = int(input(f"当前最大线程数: {current_value}\n请输入新的最大线程数 (5-200): "))
-                    if 5 <= value <= 200:
+                    value = int(input(f"当前最大线程数: {current_value}\n请输入新的最大线程数 (5-500): "))
+                    if 5 <= value <= 500:
                         success, message = self.config_manager.update_test_param("max_threads", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -586,8 +586,8 @@ class ConfigEditor:
                 # 修改DNS解析超时时间
                 try:
                     current_value = params.get("dns_timeout", 5)
-                    value = float(input(f"当前DNS解析超时时间: {current_value}秒\n请输入新的DNS解析超时时间 (1-30): "))
-                    if 1 <= value <= 30:
+                    value = float(input(f"当前DNS解析超时时间: {current_value}秒\n请输入新的DNS解析超时时间 (1-60): "))
+                    if 1 <= value <= 60:
                         success, message = self.config_manager.update_test_param("dns_timeout", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -599,8 +599,8 @@ class ConfigEditor:
                 # 修改显示的最优IP数量
                 try:
                     current_value = params.get("top_n_ips", 10)
-                    value = int(input(f"当前显示的最优IP数量: {current_value}\n请输入新的显示数量 (1-50): "))
-                    if 1 <= value <= 50:
+                    value = int(input(f"当前显示的最优IP数量: {current_value}\n请输入新的显示数量 (1-100): "))
+                    if 1 <= value <= 100:
                         success, message = self.config_manager.update_test_param("top_n_ips", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
@@ -657,8 +657,8 @@ class ConfigEditor:
                 # 修改DNS解析线程数
                 try:
                     current_value = params.get("dns_threads", 10)
-                    value = int(input(f"当前DNS解析线程数: {current_value}\n请输入新的DNS解析线程数 (1-100): "))
-                    if 1 <= value <= 100:
+                    value = int(input(f"当前DNS解析线程数: {current_value}\n请输入新的DNS解析线程数 (1-200): "))
+                    if 1 <= value <= 200:
                         success, message = self.config_manager.update_test_param("dns_threads", value)
                         print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
                     else:
