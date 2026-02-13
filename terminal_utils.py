@@ -124,8 +124,8 @@ class TerminalUtils:
         )
 
     @staticmethod
-    def progress_bar(current, total, prefix="", suffix="", length=50, fill="█", show_eta=True):
-        """显示进度条 - 创新配色，支持预计剩余时间
+    def progress_bar(current, total, prefix="", suffix="", length=50, fill="█"):
+        """显示进度条 - 创新配色
         
         Args:
             current: 当前进度
@@ -134,8 +134,10 @@ class TerminalUtils:
             suffix: 后缀文本
             length: 进度条长度
             fill: 进度条填充字符
-            show_eta: 是否显示预计剩余时间
         """
+        if current == 1 and not hasattr(TerminalUtils, '_progress_start_time'):
+            TerminalUtils._progress_start_time = time.time()
+        
         percent = 100 * (current / float(total))
         filled_length = int(length * current // total)
         bar = fill * filled_length + "-" * (length - filled_length)
@@ -151,40 +153,21 @@ class TerminalUtils:
         else:
             color = Color.BRIGHT_GREEN
 
-        eta_text = ""
-        if show_eta and current > 0 and current < total:
-            elapsed_time = time.time() - TerminalUtils._progress_start_time
-            if hasattr(TerminalUtils, '_progress_start_time'):
-                time_per_item = elapsed_time / current
-                remaining_items = total - current
-                eta_seconds = time_per_item * remaining_items
-                
-                if eta_seconds < 60:
-                    eta_text = f" 预计剩余: {eta_seconds:.1f}秒"
-                elif eta_seconds < 3600:
-                    eta_text = f" 预计剩余: {eta_seconds/60:.1f}分钟"
-                else:
-                    eta_text = f" 预计剩余: {eta_seconds/3600:.1f}小时"
-
         sys.stdout.write(
             f"\r{TerminalUtils.colored(prefix, Color.BRIGHT_CYAN)} "
             f'{TerminalUtils.colored("[", Color.GOLD)}'
             f"{TerminalUtils.colored(bar, color, Color.BOLD)}"
             f'{TerminalUtils.colored("]", Color.GOLD)} '
             f'{TerminalUtils.colored(f"{percent:.1f}%", Color.BRIGHT_WHITE, Color.BOLD)} '
-            f"{TerminalUtils.colored(suffix, Color.PURPLE)}{TerminalUtils.colored(eta_text, Color.SILVER)}"
+            f"{TerminalUtils.colored(suffix, Color.PURPLE)}"
         )
         sys.stdout.flush()
-
-        if current == 0:
-            TerminalUtils._progress_start_time = time.time()
         
         if current == total:
             if hasattr(TerminalUtils, '_progress_start_time'):
                 total_time = time.time() - TerminalUtils._progress_start_time
                 del TerminalUtils._progress_start_time
-                print(f" {TerminalUtils.colored('[✓]', Color.BRIGHT_GREEN)} "
-                      f"{TerminalUtils.colored(f'完成! 耗时: {total_time:.1f}秒', Color.BRIGHT_GREEN)}")
+                print(f" {TerminalUtils.colored(f'[{total_time:.1f}秒]', Color.BRIGHT_GREEN)}")
 
     @staticmethod
     def spinner(iterable, prefix="处理中", suffix=""):

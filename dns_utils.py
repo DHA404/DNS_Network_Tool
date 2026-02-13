@@ -674,13 +674,6 @@ class DNSResolverWrapper:
                         "raw_results": [],
                     }
 
-        # 统一格式：为每个域名显示解析完成状态
-        for domain, result in domain_results.items():
-            if result["unique_ips"]:  # 成功解析
-                TerminalUtils.print_status(f"域名 {domain} 解析完成", "SUCCESS")
-            else:  # 解析失败
-                TerminalUtils.print_status(f"域名 {domain} 解析失败", "ERROR")
-
         return domain_results
 
     def display_results(self, results):

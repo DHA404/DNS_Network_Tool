@@ -940,8 +940,13 @@ class NetworkTestManager:
         max_workers: int = None,
     ) -> List[Dict[str, Any]]:
         """对多个IP执行网络测试 - 基于线程池的动态调度机制"""
+        # 对IP列表进行去重，避免重复测试
+        unique_ips = list(dict.fromkeys(ips))
+        if len(unique_ips) != len(ips):
+            print(f"检测到重复IP，已自动去重：{len(ips)} 个 → {len(unique_ips)} 个")
+        
         results: List[Dict[str, Any]] = []
-        total_ips = len(ips)
+        total_ips = len(unique_ips)
         completed = 0
         
         TerminalUtils.print_status(f"开始对 {total_ips} 个IP执行网络测试", "INFO")
@@ -955,7 +960,7 @@ class NetworkTestManager:
             future_to_ip = {}
             
             # 为每个IP提交完整的测试任务
-            for ip in ips:
+            for ip in unique_ips:
                 # 提交单个IP的完整测试任务
                 future = executor.submit(self.test_ip, ip, test_types)
                 future_to_ip[future] = ip
