@@ -216,12 +216,6 @@
         }
     },
     "log_level": "INFO",
-    "web_interface": {
-        "enabled": false,
-        "host": "0.0.0.0",
-        "port": 8080,
-        "theme": "default"
-    },
     "init_skipped": false,
     "init_skip_time": ""
 }

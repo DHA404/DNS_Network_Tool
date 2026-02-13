@@ -74,13 +74,6 @@ class ConfigManager:
                 }
             },
             "log_level": "INFO",
-            # HTML界面相关配置
-            "web_interface": {
-                "enabled": False,  # 是否启用Web界面
-                "host": "0.0.0.0",  # Web界面监听地址
-                "port": 58090,  # Web界面端口
-                "theme": "default",  # Web界面主题
-            },
         }
 
         # 默认配置（与模板相同，使用深拷贝避免嵌套字典共享引用）
@@ -108,7 +101,7 @@ class ConfigManager:
 
                 # 处理顶层配置，但跳过嵌套配置，因为我们需要特殊处理
                 for key, value in config.items():
-                    if key not in ["test_params", "web_interface", "dns_servers"]:
+                    if key not in ["test_params", "dns_servers"]:
                         merged_config[key] = value
 
                 # 特殊处理嵌套配置，确保保留默认配置中用户配置没有的参数
@@ -124,14 +117,6 @@ class ConfigManager:
                     # 用用户配置的test_params更新，保留默认配置中用户没有的参数
                     test_params.update(config["test_params"])
                     merged_config["test_params"] = test_params
-
-                # 3. Web界面配置
-                if "web_interface" in config:
-                    # 创建一个默认web_interface的副本
-                    web_interface = merged_config["web_interface"].copy()
-                    # 用用户配置的web_interface更新，保留默认配置中用户没有的参数
-                    web_interface.update(config["web_interface"])
-                    merged_config["web_interface"] = web_interface
 
                 # 验证配置
                 is_valid, message = self.validate_config(merged_config)
@@ -260,23 +245,6 @@ class ConfigManager:
             return self.save_config()
         return False, f"无效的日志级别: {level}，有效值: {', '.join(valid_levels)}"
 
-    # Web界面配置方法
-    def get_web_interface_config(self) -> Dict[str, Any]:
-        """获取Web界面配置"""
-        return self.config["web_interface"].copy()
-
-    def update_web_interface_config(self, web_config: Dict[str, Any]) -> Tuple[bool, str]:
-        """更新Web界面配置"""
-        self.config["web_interface"].update(web_config)
-        return self.save_config()
-
-    def update_web_interface_param(self, param_name: str, value: Any) -> Tuple[bool, str]:
-        """更新单个Web界面参数"""
-        if param_name in self.config["web_interface"]:
-            self.config["web_interface"][param_name] = value
-            return self.save_config()
-        return False, f"无效的Web界面参数: {param_name}"
-
     def display_config(self) -> None:
         """显示当前配置"""
         print(TerminalUtils.colored("\n=== 当前配置 ===", Color.CYAN, Color.BOLD))
@@ -295,13 +263,6 @@ class ConfigManager:
 
         # 显示日志级别
         print(TerminalUtils.colored(f"\n日志级别: {self.config['log_level']}", Color.BLUE, Color.BOLD))
-
-        # 显示Web界面配置
-        print(TerminalUtils.colored("\nWeb界面配置:", Color.BLUE, Color.BOLD))
-        for param, value in self.config["web_interface"].items():
-            # 格式化参数名称
-            param_name = param.replace("_", " ").title()
-            print(f"{param_name}: {value}")
 
     def validate_ip(self, ip: str) -> bool:
         """验证IP地址格式（支持IPv4和IPv6，使用跨平台兼容的方法）"""
@@ -370,15 +331,6 @@ class ConfigManager:
             valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
             if config["log_level"].upper() not in valid_log_levels:
                 return False, f"无效的日志级别: {config['log_level']}，有效值: {', '.join(valid_log_levels)}"
-        
-        # 验证Web界面配置
-        if "web_interface" in config:
-            web_config = config["web_interface"]
-            if "enabled" in web_config and not isinstance(web_config["enabled"], bool):
-                return False, "web_interface.enabled 必须是布尔值"
-            if "port" in web_config:
-                if not isinstance(web_config["port"], int) or not (1024 <= web_config["port"] <= 65535):
-                    return False, "web_interface.port 必须是1024-65535之间的整数"
         
         return True, "配置有效"
     
@@ -713,76 +665,6 @@ class ConfigEditor:
             else:
                 print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
 
-    def edit_web_interface(self) -> None:
-        """编辑Web界面配置"""
-        while True:
-            print(TerminalUtils.colored("\n=== Web界面配置 ===", Color.CYAN, Color.BOLD))
-            web_config = self.config_manager.get_web_interface_config()
-
-            for param, value in web_config.items():
-                param_name = param.replace("_", " ").title()
-                print(f"{param_name}: {value}")
-
-            print("\n操作选项:")
-            print("1. 启用/禁用Web界面 - 开启或关闭基于浏览器的图形化操作界面")
-            print("2. 修改Web界面监听地址 - 设置Web界面监听的IP地址")
-            print("3. 修改Web界面端口 - 设置Web界面访问的端口号")
-            print("4. 修改Web界面主题 - 切换Web界面的显示主题（默认/深色/浅色）")
-            print("5. 保存并返回 - 保存当前配置并返回上一级菜单")
-
-            choice = input("请输入选项 (1-5): ")
-
-            if choice == "1":
-                # 启用/禁用Web界面
-                current_value = web_config.get("enabled", False)
-                new_value = not current_value
-                success, message = self.config_manager.update_web_interface_param("enabled", new_value)
-                print(TerminalUtils.colored(f"Web界面已{'启用' if new_value else '禁用'}", Color.GREEN if success else Color.RED))
-
-            elif choice == "2":
-                # 修改Web界面监听地址
-                host = input("请输入Web界面监听地址 (默认: 0.0.0.0): ") or "0.0.0.0"
-                success, message = self.config_manager.update_web_interface_param("host", host)
-                print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-
-            elif choice == "3":
-                # 修改Web界面端口
-                try:
-                    port = int(input("请输入Web界面端口 (1024-65535): "))
-                    if 1024 <= port <= 65535:
-                        success, message = self.config_manager.update_web_interface_param("port", port)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("Web界面端口必须在1024-65535之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "4":
-                # 修改Web界面主题
-                print("\n选择Web界面主题:")
-                print("1. 默认主题 (default)")
-                print("2. 深色主题 (dark)")
-                print("3. 浅色主题 (light)")
-                theme_choice = input("请输入选项 (1-3): ")
-                if theme_choice == "1":
-                    theme = "default"
-                elif theme_choice == "2":
-                    theme = "dark"
-                elif theme_choice == "3":
-                    theme = "light"
-                else:
-                    print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
-                    continue
-                success, message = self.config_manager.update_web_interface_param("theme", theme)
-                print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-
-            elif choice == "5":
-                # 保存并返回
-                break
-
-            else:
-                print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
-
     def run_config_menu(self) -> None:
         """运行配置菜单"""
         while True:
@@ -790,11 +672,10 @@ class ConfigEditor:
             print("1. 查看当前配置 - 显示所有配置项的当前值")
             print("2. 配置DNS服务器 - 添加、删除或修改用于测试的DNS服务器列表")
             print("3. 配置测试参数 - 调整ping、速率测试等网络测试相关参数")
-            print("4. 配置Web界面 - 设置基于浏览器的图形化操作界面参数")
-            print("5. 恢复默认配置 - 将所有配置项恢复为初始默认值")
-            print("6. 返回主菜单 - 保存当前配置并返回程序主菜单")
+            print("4. 恢复默认配置 - 将所有配置项恢复为初始默认值")
+            print("5. 返回主菜单 - 保存当前配置并返回程序主菜单")
 
-            choice = input("请输入选项 (1-6): ")
+            choice = input("请输入选项 (1-5): ")
 
             if choice == "1":
                 # 查看当前配置
@@ -810,10 +691,6 @@ class ConfigEditor:
                 self.edit_test_params()
 
             elif choice == "4":
-                # 配置Web界面
-                self.edit_web_interface()
-
-            elif choice == "5":
                 # 恢复默认配置
                 confirm = input("确定要恢复默认配置吗？ (y/n): ")
                 if confirm.lower() == "y":
@@ -821,7 +698,7 @@ class ConfigEditor:
                     success, message = self.config_manager.save_config()
                     print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
 
-            elif choice == "6":
+            elif choice == "5":
                 # 返回主菜单
                 break
 
