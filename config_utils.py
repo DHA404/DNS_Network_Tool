@@ -155,7 +155,17 @@ class ConfigManager:
         return self.config.copy()
 
     def update_config(self, new_config: Dict[str, Any]) -> Tuple[bool, str]:
-        """更新配置"""
+        """更新配置
+        
+        注意：此方法会完全替换当前配置，保留new_config中不存在的键
+        如需删除某些键，请直接操作self.config后调用save_config()
+        """
+        # 合并配置，保留当前配置中但不在new_config中的键
+        for key in list(self.config.keys()):
+            if key not in new_config:
+                del self.config[key]
+        
+        # 更新配置
         self.config.update(new_config)
         return self.save_config()
 

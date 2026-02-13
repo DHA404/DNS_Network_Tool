@@ -20,13 +20,27 @@ class SystemPerformanceTester:
     """系统性能测试类
     
     测试系统支持的最高并发连接数、最大线程数、DNS解析线程数
+    支持用户中断
     """
     
     def __init__(self):
         self.test_targets = [10, 50, 100, 200, 300, 500, 750, 1000]
         self.dns_test_targets = [10, 50, 100, 200, 300, 500]
         self.test_timeout = 5  # 测试超时时间
+        self._cancelled = False  # 中断标志
         
+    def cancel(self):
+        """设置中断标志"""
+        self._cancelled = True
+    
+    def reset_cancel(self):
+        """重置中断标志"""
+        self._cancelled = False
+    
+    def _check_cancelled(self) -> bool:
+        """检查是否被中断"""
+        return self._cancelled
+    
     def test_concurrent_connections(self, target: int) -> Tuple[bool, float]:
         """测试并发连接数
         
@@ -36,6 +50,9 @@ class SystemPerformanceTester:
         Returns:
             (是否成功, 成功率)
         """
+        if self._cancelled:
+            return False, 0.0
+            
         success_count = 0
         test_host = "1.1.1.1"  # Cloudflare DNS
         test_port = 53
@@ -69,6 +86,9 @@ class SystemPerformanceTester:
         Returns:
             (是否成功, 执行效率)
         """
+        if self._cancelled:
+            return False, 0.0
+            
         def simple_task():
             # 简单的CPU计算任务
             result = 0
@@ -99,6 +119,9 @@ class SystemPerformanceTester:
         Returns:
             (是否成功, 解析成功率)
         """
+        if self._cancelled:
+            return False, 0.0
+            
         test_domains = ["google.com", "github.com", "cloudflare.com", "baidu.com"]
         
         def resolve_domain(domain):
@@ -124,52 +147,154 @@ class SystemPerformanceTester:
         except Exception as e:
             return False, 0.0
     
-    def run_performance_tests(self) -> Dict[str, int]:
-        """运行所有性能测试
+    def find_max_concurrent_connections(self, test_range: List[int]) -> int:
+        """使用二分查找找到最大并发连接数
+        
+        Args:
+            test_range: 测试范围列表（已排序）
+            
+        Returns:
+            最大成功连接数
+        """
+        if not test_range:
+            return 10
+            
+        left, right = 0, len(test_range) - 1
+        result = 10
+        
+        while left <= right:
+            mid = (left + right) // 2
+            target = test_range[mid]
+            
+            print(f"  测试并发连接数: {target}...", end=" ")
+            success, rate = self.test_concurrent_connections(target)
+            
+            if success:
+                result = target
+                left = mid + 1
+                print(TerminalUtils.colored(f"通过 (成功率: {rate:.1%})", Color.GREEN))
+            else:
+                right = mid - 1
+                print(TerminalUtils.colored(f"失败 (成功率: {rate:.1%})", Color.RED))
+            
+            if self._cancelled:
+                break
+        
+        return result
+    
+    def find_max_threads(self, test_range: List[int]) -> int:
+        """使用二分查找找到最大线程数
+        
+        Args:
+            test_range: 测试范围列表（已排序）
+            
+        Returns:
+            最大成功线程数
+        """
+        if not test_range:
+            return 10
+            
+        left, right = 0, len(test_range) - 1
+        result = 10
+        
+        while left <= right:
+            mid = (left + right) // 2
+            target = test_range[mid]
+            
+            print(f"  测试线程数: {target}...", end=" ")
+            success, rate = self.test_max_threads(target)
+            
+            if success:
+                result = target
+                left = mid + 1
+                print(TerminalUtils.colored(f"通过 (效率: {rate:.1%})", Color.GREEN))
+            else:
+                right = mid - 1
+                print(TerminalUtils.colored(f"失败 (效率: {rate:.1%})", Color.RED))
+            
+            if self._cancelled:
+                break
+        
+        return result
+    
+    def find_max_dns_threads(self, test_range: List[int]) -> int:
+        """使用二分查找找到最大DNS线程数
+        
+        Args:
+            test_range: 测试范围列表（已排序）
+            
+        Returns:
+            最大成功DNS线程数
+        """
+        if not test_range:
+            return 10
+            
+        left, right = 0, len(test_range) - 1
+        result = 10
+        
+        while left <= right:
+            mid = (left + right) // 2
+            target = test_range[mid]
+            
+            print(f"  测试DNS线程数: {target}...", end=" ")
+            success, rate = self.test_dns_threads(target)
+            
+            if success:
+                result = target
+                left = mid + 1
+                print(TerminalUtils.colored(f"通过 (成功率: {rate:.1%})", Color.GREEN))
+            else:
+                right = mid - 1
+                print(TerminalUtils.colored(f"失败 (成功率: {rate:.1%})", Color.RED))
+            
+            if self._cancelled:
+                break
+        
+        return result
+    
+    def run_performance_tests_binary(self) -> Dict[str, int]:
+        """使用二分查找运行性能测试（更快）
         
         Returns:
             包含三个指标的字典
         """
-        print(TerminalUtils.colored("\n=== 开始系统性能测试 ===", Color.CYAN, Color.BOLD))
+        print(TerminalUtils.colored("\n=== 开始系统性能测试 (二分查找模式) ===", Color.CYAN, Color.BOLD))
+        print("提示: 按 Ctrl+C 可随时中断测试\n")
+        
+        self.reset_cancel()
         
         # 测试并发连接数
         print("\n[1/3] 测试并发连接数...")
-        max_connections = 10
-        for target in self.test_targets:
-            print(f"  测试并发连接数: {target}...", end=" ")
-            success, rate = self.test_concurrent_connections(target)
-            if success:
-                max_connections = target
-                print(TerminalUtils.colored(f"通过 (成功率: {rate:.1%})", Color.GREEN))
-            else:
-                print(TerminalUtils.colored(f"失败 (成功率: {rate:.1%})", Color.RED))
-                break
+        try:
+            max_connections = self.find_max_concurrent_connections(self.test_targets)
+        except KeyboardInterrupt:
+            print(TerminalUtils.colored("\n测试被用户中断", Color.YELLOW))
+            self._cancelled = True
+            max_connections = 10
+        
+        if self._cancelled:
+            return {"concurrent_connections": 10, "max_threads": 10, "dns_threads": 10}
         
         # 测试最大线程数
         print("\n[2/3] 测试最大线程数...")
-        max_threads = 10
-        for target in self.test_targets:
-            print(f"  测试线程数: {target}...", end=" ")
-            success, efficiency = self.test_max_threads(target)
-            if success:
-                max_threads = target
-                print(TerminalUtils.colored(f"通过 (效率: {efficiency:.1%})", Color.GREEN))
-            else:
-                print(TerminalUtils.colored(f"失败 (效率: {efficiency:.1%})", Color.RED))
-                break
+        try:
+            max_threads = self.find_max_threads(self.test_targets)
+        except KeyboardInterrupt:
+            print(TerminalUtils.colored("\n测试被用户中断", Color.YELLOW))
+            self._cancelled = True
+            max_threads = 10
+        
+        if self._cancelled:
+            return {"concurrent_connections": max_connections, "max_threads": 10, "dns_threads": 10}
         
         # 测试DNS解析线程数
         print("\n[3/3] 测试DNS解析线程数...")
-        max_dns_threads = 10
-        for target in self.dns_test_targets:
-            print(f"  测试DNS线程数: {target}...", end=" ")
-            success, rate = self.test_dns_threads(target)
-            if success:
-                max_dns_threads = target
-                print(TerminalUtils.colored(f"通过 (成功率: {rate:.1%})", Color.GREEN))
-            else:
-                print(TerminalUtils.colored(f"失败 (成功率: {rate:.1%})", Color.RED))
-                break
+        try:
+            max_dns_threads = self.find_max_dns_threads(self.dns_test_targets)
+        except KeyboardInterrupt:
+            print(TerminalUtils.colored("\n测试被用户中断", Color.YELLOW))
+            self._cancelled = True
+            max_dns_threads = 10
         
         # 计算最终值（乘以2/3，向下取整）
         final_connections = int(max_connections * 2 / 3)
@@ -191,18 +316,37 @@ class SystemPerformanceTester:
             "max_threads": final_threads,
             "dns_threads": final_dns_threads
         }
+    
+    def run_performance_tests(self) -> Dict[str, int]:
+        """运行所有性能测试
+        
+        Returns:
+            包含三个指标的字典
+        """
+        # 使用二分查找模式（更快）
+        return self.run_performance_tests_binary()
 
 
 class DNSServerTester:
     """DNS服务器测试类
     
     依次测试每个DNS服务器，删除不合格的
+    支持并行测试和用户中断
     """
     
     def __init__(self):
         self.connection_timeout = 2  # 连接超时时间
         self.ping_count = 3  # ping测试次数
         self.ping_timeout = 2  # ping超时时间
+        self._cancelled = False  # 中断标志
+        
+    def cancel(self):
+        """设置中断标志"""
+        self._cancelled = True
+    
+    def reset_cancel(self):
+        """重置中断标志"""
+        self._cancelled = False
         
     def test_connection(self, server: str, port: int = 53) -> bool:
         """测试DNS服务器连接
@@ -214,6 +358,9 @@ class DNSServerTester:
         Returns:
             是否连接成功
         """
+        if self._cancelled:
+            return False
+            
         try:
             # 判断是IPv4还是IPv6
             if ":" in server:
@@ -237,6 +384,9 @@ class DNSServerTester:
         Returns:
             (是否至少1次成功, 成功次数)
         """
+        if self._cancelled:
+            return False, 0
+            
         ping_tester = PingTest(count=self.ping_count, timeout=self.ping_timeout)
         result = ping_tester.ping(server)
         
@@ -257,6 +407,9 @@ class DNSServerTester:
         Returns:
             是否通过测试
         """
+        if self._cancelled:
+            return False
+        
         # 第一步：连接测试
         if not self.test_connection(server):
             return False
@@ -276,20 +429,90 @@ class DNSServerTester:
         """
         print(TerminalUtils.colored("\n=== 开始DNS服务器测试 ===", Color.CYAN, Color.BOLD))
         print(f"待测试服务器数量: {len(servers)}")
-        print("测试标准: 2秒内连接成功，且ping测试3次至少1次成功\n")
+        print("测试标准: 2秒内连接成功，且ping测试3次至少1次成功")
+        print("提示: 按 Ctrl+C 可随时中断测试\n")
         
+        self.reset_cancel()
         valid_servers = []
         removed_count = 0
         
-        for i, server in enumerate(servers, 1):
-            print(f"[{i}/{len(servers)}] 测试 {server}...", end=" ")
+        try:
+            for i, server in enumerate(servers, 1):
+                if self._cancelled:
+                    print(TerminalUtils.colored("\n测试已中断", Color.YELLOW))
+                    break
+                    
+                print(f"[{i}/{len(servers)}] 测试 {server}...", end=" ")
+                
+                if self.test_dns_server(server):
+                    valid_servers.append(server)
+                    print(TerminalUtils.colored("通过", Color.GREEN))
+                else:
+                    removed_count += 1
+                    print(TerminalUtils.colored("移除", Color.RED))
+        except KeyboardInterrupt:
+            print(TerminalUtils.colored("\n\n测试被用户中断", Color.YELLOW))
+            self._cancelled = True
+        
+        print(TerminalUtils.colored(f"\n=== DNS服务器测试结果 ===", Color.GREEN, Color.BOLD))
+        print(f"原始服务器数量: {len(servers)}")
+        print(f"通过测试数量: {len(valid_servers)}")
+        print(f"移除服务器数量: {removed_count}")
+        
+        return valid_servers
+    
+    def filter_dns_servers_parallel(self, servers: List[str], max_workers: int = 10) -> List[str]:
+        """并行筛选DNS服务器
+        
+        Args:
+            servers: DNS服务器列表
+            max_workers: 最大并行测试数
             
-            if self.test_dns_server(server):
-                valid_servers.append(server)
-                print(TerminalUtils.colored("通过", Color.GREEN))
-            else:
-                removed_count += 1
-                print(TerminalUtils.colored("移除", Color.RED))
+        Returns:
+            通过测试的服务器列表
+        """
+        print(TerminalUtils.colored("\n=== 开始DNS服务器测试 (并行模式) ===", Color.CYAN, Color.BOLD))
+        print(f"待测试服务器数量: {len(servers)}")
+        print(f"并行测试数: {max_workers}")
+        print("测试标准: 2秒内连接成功，且ping测试3次至少1次成功")
+        print("提示: 按 Ctrl+C 可随时中断测试\n")
+        
+        self.reset_cancel()
+        results = {}
+        
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_server = {
+                    executor.submit(self.test_dns_server, server): server 
+                    for server in servers
+                }
+                
+                completed = 0
+                total = len(servers)
+                for future in concurrent.futures.as_completed(future_to_server):
+                    if self._cancelled:
+                        for f in future_to_server:
+                            f.cancel()
+                        break
+                    
+                    server = future_to_server[future]
+                    completed += 1
+                    
+                    try:
+                        success = future.result()
+                        results[server] = success
+                        status = "通过" if success else "移除"
+                        color = Color.GREEN if success else Color.RED
+                        print(f"[{completed}/{total}] {server}: {TerminalUtils.colored(status, color)}")
+                    except Exception as e:
+                        results[server] = False
+                        print(f"[{completed}/{total}] {server}: {TerminalUtils.colored('错误', Color.RED)}")
+        except KeyboardInterrupt:
+            print(TerminalUtils.colored("\n\n测试被用户中断", Color.YELLOW))
+            self._cancelled = True
+        
+        valid_servers = [server for server, success in results.items() if success]
+        removed_count = len(results) - len(valid_servers)
         
         print(TerminalUtils.colored(f"\n=== DNS服务器测试结果 ===", Color.GREEN, Color.BOLD))
         print(f"原始服务器数量: {len(servers)}")
@@ -346,7 +569,16 @@ class InitConfigManager:
             # 第二步：DNS服务器测试
             print(TerminalUtils.colored("\n>>> 第二步：DNS服务器测试", Color.YELLOW, Color.BOLD))
             current_servers = self.config_manager.get_dns_servers()
-            valid_servers = self.dns_tester.filter_dns_servers(current_servers)
+            
+            # 根据服务器数量选择测试方式
+            if len(current_servers) > 20:
+                # 服务器数量多时使用并行测试
+                print(f"检测到 {len(current_servers)} 个DNS服务器，将使用并行测试模式...")
+                valid_servers = self.dns_tester.filter_dns_servers_parallel(
+                    current_servers, max_workers=20
+                )
+            else:
+                valid_servers = self.dns_tester.filter_dns_servers(current_servers)
             
             # 更新DNS服务器列表
             if len(valid_servers) != len(current_servers):
