@@ -4,6 +4,7 @@
 import sys
 import time
 from enum import Enum
+from typing import Dict, List, Any
 import ctypes
 
 # 启用 Windows 终端的 ANSI 颜色支持
@@ -223,111 +224,133 @@ class TerminalUtils:
         input(message)
 
     @staticmethod
-    def print_table(data, headers=None, align="left", title=None, alternate_rows=True):
-        """打印格式化表格 - 改进显示格式"""
-        if not data:
-            return
-
-        # 如果没有提供表头，使用数据的键
-        if not headers:
-            headers = list(data[0].keys())
-
-        # 计算每列的最大宽度
+    def _calculate_column_widths(data: List[Dict], headers: List[str]) -> Dict[str, int]:
+        """计算每列的最大宽度
+        
+        Args:
+            data: 表格数据列表
+            headers: 表头列表
+            
+        Returns:
+            Dict[str, int]: 每列的最大宽度字典
+        """
         column_widths = {}
         for header in headers:
-            # 表头宽度
             column_widths[header] = len(str(header))
-            # 数据宽度
             for row in data:
                 cell_value = row.get(header, "")
                 cell_width = len(str(cell_value))
                 if cell_width > column_widths[header]:
                     column_widths[header] = cell_width
+        return column_widths
 
-        # 表格边框字符，使用更美观的样式
+    @staticmethod
+    def _build_separator(column_widths: Dict[str, int], headers: List[str], 
+                          left_char: str, mid_char: str, right_char: str) -> str:
+        """构建表格分隔线
+        
+        Args:
+            column_widths: 列宽度字典
+            headers: 表头列表
+            left_char: 左边字符
+            mid_char: 中间字符
+            right_char: 右边字符
+            
+        Returns:
+            str: 分隔线字符串
+        """
         horizontal_line = "─"
-        vertical_line = "│"
-        top_left = "┌"
-        top_right = "┐"
-        bottom_left = "└"
-        bottom_right = "┘"
-        top_mid = "┬"
-        bottom_mid = "┴"
-        mid_line = "┼"
-        header_sep = "┼"
+        separator = left_char
+        for i, header in enumerate(headers):
+            width = column_widths[header]
+            separator += horizontal_line * (width + 2)
+            if i < len(headers) - 1:
+                separator += mid_char
+            else:
+                separator += right_char
+        return separator
 
-        # 构建分隔线
-        def build_separator(left_char, mid_char, right_char):
-            separator = left_char
-            for i, header in enumerate(headers):
-                width = column_widths[header]
-                separator += horizontal_line * (width + 2)
-                if i < len(headers) - 1:
-                    separator += mid_char
-                else:
-                    separator += right_char
-            return separator
+    @staticmethod
+    def _format_cell(value: Any, width: int, align: str) -> str:
+        """格式化单元格内容
+        
+        Args:
+            value: 单元格值
+            width: 列宽度
+            align: 对齐方式
+            
+        Returns:
+            str: 格式化后的字符串
+        """
+        value_str = str(value)
+        cell_align = align
+        if isinstance(value, (int, float)):
+            cell_align = "right"
+        
+        if cell_align == "left":
+            return value_str.ljust(width)
+        elif cell_align == "right":
+            return value_str.rjust(width)
+        else:
+            return value_str.center(width)
 
-        top_separator = build_separator(top_left, top_mid, top_right)
-        header_separator = build_separator("├", header_sep, "┤")
-        bottom_separator = build_separator(bottom_left, bottom_mid, bottom_right)
+    @staticmethod
+    def print_table(data: List[Dict], headers: List[str] = None, align: str = "left", 
+                    title: str = None, alternate_rows: bool = True) -> None:
+        """打印格式化表格 - 重构版本
+        
+        Args:
+            data: 表格数据列表
+            headers: 表头列表，默认使用数据的键
+            align: 对齐方式，默认左对齐
+            title: 表格标题
+            alternate_rows: 是否交替行颜色
+        """
+        if not data:
+            return
 
-        # 打印表格标题
+        if not headers:
+            headers = list(data[0].keys())
+
+        column_widths = TerminalUtils._calculate_column_widths(data, headers)
+
+        top_separator = TerminalUtils._build_separator(column_widths, headers, "┌", "┬", "┐")
+        header_separator = TerminalUtils._build_separator(column_widths, headers, "├", "┼", "┤")
+        bottom_separator = TerminalUtils._build_separator(column_widths, headers, "└", "┴", "┘")
+
+        total_width = sum(column_widths.values()) + len(headers) * 3 + 1
+
         if title:
             title_line = f"{title}"
-            total_width = sum(column_widths.values()) + len(headers) * 3 + 1
             print(TerminalUtils.colored(title_line.center(total_width), Color.BRIGHT_CYAN, Color.BOLD))
-            print(TerminalUtils.colored(horizontal_line * total_width, Color.BRIGHT_CYAN))
+            print(TerminalUtils.colored("─" * total_width, Color.BRIGHT_CYAN))
 
-        # 打印顶部边框
         print(TerminalUtils.colored(top_separator, Color.BRIGHT_CYAN))
 
-        # 打印表头
-        header_line = vertical_line
+        header_line = "│"
         for header in headers:
             width = column_widths[header]
             header_line += f" {TerminalUtils.colored(header.center(width), Color.BRIGHT_WHITE, Color.BOLD)} "
-            header_line += vertical_line
+            header_line += "│"
         print(TerminalUtils.colored(header_line, Color.BRIGHT_CYAN))
 
-        # 打印表头分隔线
         print(TerminalUtils.colored(header_separator, Color.BRIGHT_CYAN))
 
-        # 打印数据行，添加交替颜色
         for i, row in enumerate(data):
-            row_line = vertical_line
-            # 交替行颜色，提高可读性
+            row_line = "│"
             row_color = Color.WHITE if not alternate_rows or i % 2 == 0 else Color.SILVER
             for header in headers:
                 width = column_widths[header]
                 value = row.get(header, "")
-                value_str = str(value)
-                
-                # 自动对齐：数字右对齐，其他左对齐
-                cell_align = align
-                if isinstance(value, (int, float)):
-                    cell_align = "right"
-                
-                # 根据对齐方式格式化单元格
-                if cell_align == "left":
-                    formatted_value = value_str.ljust(width)
-                elif cell_align == "right":
-                    formatted_value = value_str.rjust(width)
-                else:  # center
-                    formatted_value = value_str.center(width)
-                
-                # 添加单元格内容
+                formatted_value = TerminalUtils._format_cell(value, width, align)
                 row_line += f" {TerminalUtils.colored(formatted_value, row_color)} "
-                row_line += vertical_line
+                row_line += "│"
             print(TerminalUtils.colored(row_line, Color.BRIGHT_CYAN))
 
-        # 打印底部边框
         print(TerminalUtils.colored(bottom_separator, Color.BRIGHT_CYAN))
         
-        # 打印数据统计信息
         if data:
             stats_line = f" 共 {len(data)} 行数据 "
-            total_width = sum(column_widths.values()) + len(headers) * 3 + 1
             print(TerminalUtils.colored(stats_line.rjust(total_width), Color.SILVER))
 
     @staticmethod

@@ -12,7 +12,7 @@ from result_utils import ResultExporter
 class ResultProcessor:
     """结果处理器 - 统一管理结果处理相关的所有操作"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化结果处理器"""
         pass
     

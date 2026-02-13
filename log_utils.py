@@ -3,6 +3,7 @@
 
 import logging
 import os
+import functools
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
@@ -185,7 +186,8 @@ def get_logger():
 # 日志装饰器
 def log_function_call(func):
     """记录函数调用的装饰器"""
-
+    
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         logger = get_logger()
         logger.debug(f"调用函数: {func.__name__} | 参数: args={args}, kwargs={kwargs}")

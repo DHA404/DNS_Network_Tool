@@ -6,7 +6,7 @@ import socket
 import threading
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Tuple
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 import re
@@ -126,8 +126,140 @@ class DomainAnalyzer:
         
         return remote_address
     
+    def _filter_valid_connections(self, connections: List[Dict[str, Any]]) -> Dict[str, List[Dict]]:
+        """过滤有效连接并按IP分组
+        
+        Args:
+            connections: 连接数据列表
+            
+        Returns:
+            Dict[str, List[Dict]]: 按IP分组的连接字典
+        """
+        unique_ips: Dict[str, List[Dict]] = defaultdict(list)
+        
+        for conn in connections:
+            remote_addr = conn.get('remote_address', '')
+            
+            if not remote_addr or remote_addr == '0.0.0.0' or remote_addr.startswith('::'):
+                continue
+            
+            if self._is_private_ip(remote_addr):
+                domain_key = f"local:{remote_addr}"
+            else:
+                domain_key = remote_addr
+            
+            unique_ips[domain_key].append(conn)
+        
+        return unique_ips
+
+    def _resolve_ip_batch(self, ips: List[str]) -> Dict[str, str]:
+        """批量解析IP到域名
+        
+        Args:
+            ips: IP地址列表
+            
+        Returns:
+            Dict[str, str]: IP到域名的映射
+        """
+        def resolve_single_ip(ip: str) -> Tuple[str, str]:
+            if ip.startswith("local:"):
+                return (ip, ip)
+            try:
+                hostname = socket.gethostbyaddr(ip)[0]
+                return (ip, hostname)
+            except (socket.herror, socket.gaierror, OSError):
+                return (ip, ip)
+        
+        result = {}
+        total_ips = len(ips)
+        
+        if total_ips == 0:
+            return result
+        
+        print(TerminalUtils.colored(f"\n🔄 正在反向解析 {total_ips} 个域名...", Color.CYAN))
+        
+        import concurrent.futures
+        max_workers = min(50, total_ips)
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(resolve_single_ip, ip): ip for ip in ips}
+            completed = 0
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    ip, hostname = future.result()
+                    result[ip] = hostname
+                except Exception:
+                    pass
+                
+                completed += 1
+                if completed % 5 == 0 or completed == total_ips:
+                    progress = int(completed / total_ips * 100)
+                    print(f"\r  进度: {progress}% ({completed}/{total_ips})", end="", flush=True)
+        
+        print(f" ✓ 完成")
+        return result
+
+    def _build_domain_info(self, domain_name: str, ip: str, conn_list: List[Dict]) -> DomainInfo:
+        """构建域名信息对象
+        
+        Args:
+            domain_name: 域名
+            ip: IP地址
+            conn_list: 连接列表
+            
+        Returns:
+            DomainInfo: 域名信息对象
+        """
+        domain_info = DomainInfo(
+            domain=domain_name,
+            ip_address=ip if not ip.startswith("local:") else ip.split(":")[1] if ":" in ip else ip,
+            first_access=conn_list[0].get('timestamp', ''),
+            last_access=conn_list[0].get('timestamp', '')
+        )
+        
+        domain_info.access_count = len(conn_list)
+        
+        for conn in conn_list:
+            timestamp = conn.get('timestamp', '')
+            if timestamp > domain_info.last_access:
+                domain_info.last_access = timestamp
+            domain_info.protocols.add(conn.get('protocol', ''))
+            domain_info.ports.add(conn.get('remote_port', 0))
+            domain_info.connection_statuses.add(conn.get('status', ''))
+        
+        return domain_info
+
+    def _categorize_domains(self, domain_map: Dict[str, DomainInfo]) -> Tuple[List[DomainInfo], int, int]:
+        """分类域名为已解析和未解析
+        
+        Args:
+            domain_map: 域名映射字典
+            
+        Returns:
+            Tuple[List[DomainInfo], int, int]: (域名列表, 已解析数量, 未解析数量)
+        """
+        final_domains: List[DomainInfo] = []
+        resolved_count = 0
+        unresolved_count = 0
+        
+        for domain_key, domain_info in domain_map.items():
+            if domain_info.domain.startswith("local:"):
+                domain_info.resolved = True
+                resolved_count += 1
+            elif domain_info.domain != domain_info.ip_address:
+                domain_info.resolved = True
+                resolved_count += 1
+            else:
+                domain_info.resolved = False
+                unresolved_count += 1
+            
+            final_domains.append(domain_info)
+        
+        return final_domains, resolved_count, unresolved_count
+
     def analyze_connections(self, connections: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """分析连接数据并提取域名信息
+        """分析连接数据并提取域名信息 - 重构版本
         
         Args:
             connections: 连接数据列表
@@ -148,115 +280,20 @@ class DomainAnalyzer:
                 }
             }
         
+        unique_ips = self._filter_valid_connections(connections)
+        ip_to_domain = self._resolve_ip_batch(list(unique_ips.keys()))
+        
         domain_map: Dict[str, DomainInfo] = {}
-        unique_ips: Dict[str, List[Dict]] = defaultdict(list)
-        
-        for conn in connections:
-            remote_addr = conn.get('remote_address', '')
-            remote_port = conn.get('remote_port', 0)
-            protocol = conn.get('protocol', '')
-            status = conn.get('status', '')
-            timestamp = conn.get('timestamp', '')
-            
-            if not remote_addr or remote_addr == '0.0.0.0' or remote_addr.startswith('::'):
-                continue
-            
-            if self._is_private_ip(remote_addr):
-                domain_key = f"local:{remote_addr}"
-            else:
-                domain_key = remote_addr
-            
-            unique_ips[domain_key].append(conn)
-        
-        total_ips = len(unique_ips)
-        
-        def resolve_ip(ip: str) -> tuple:
-            """解析单个IP的域名，返回 (ip, hostname)"""
-            if ip.startswith("local:"):
-                return (ip, ip)
-            
-            try:
-                hostname = socket.gethostbyaddr(ip)[0]
-                return (ip, hostname)
-            except (socket.herror, socket.gaierror, OSError):
-                return (ip, ip)
-        
-        if total_ips > 0:
-            print(TerminalUtils.colored(f"\n🔄 正在反向解析 {total_ips} 个域名...", Color.CYAN))
-            
-            import concurrent.futures
-            
-            max_workers = min(50, total_ips)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(resolve_ip, ip): ip for ip in unique_ips.keys()}
-                
-                completed = 0
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        future.result()  # 等待完成，但不使用缓存
-                    except Exception:
-                        # 记录异常但继续处理其他任务
-                        pass
-                    
-                    completed += 1
-                    if completed % 5 == 0 or completed == total_ips:
-                        progress = int(completed / total_ips * 100)
-                        print(f"\r  进度: {progress}% ({completed}/{total_ips})", end="", flush=True)
-            
-            print(f" ✓ 完成")
         
         for ip, conn_list in unique_ips.items():
-            # 直接解析域名，不使用缓存
-            if ip.startswith("local:"):
-                domain_name = ip
-            else:
-                try:
-                    domain_name = socket.gethostbyaddr(ip)[0]
-                except (socket.herror, socket.gaierror, OSError):
-                    domain_name = ip
+            domain_name = ip_to_domain.get(ip, ip)
             
             if domain_name not in domain_map:
-                domain_map[domain_name] = DomainInfo(
-                    domain=domain_name,
-                    ip_address=ip if not ip.startswith("local:") else ip.split(":")[1] if ":" in ip else ip,
-                    first_access=conn_list[0].get('timestamp', ''),
-                    last_access=conn_list[0].get('timestamp', '')
-                )
-            
-            domain_info = domain_map[domain_name]
-            domain_info.access_count = len(conn_list)
-            
-            for conn in conn_list:
-                timestamp = conn.get('timestamp', '')
-                if timestamp > domain_info.last_access:
-                    domain_info.last_access = timestamp
-                domain_info.protocols.add(conn.get('protocol', ''))
-                domain_info.ports.add(conn.get('remote_port', 0))
-                domain_info.connection_statuses.add(conn.get('status', ''))
+                domain_map[domain_name] = self._build_domain_info(domain_name, ip, conn_list)
         
-        final_domains: List[DomainInfo] = []
-        resolved_count = 0
-        unresolved_count = 0
+        final_domains, resolved_count, unresolved_count = self._categorize_domains(domain_map)
         
-        for domain_key, domain_info in domain_map.items():
-            if domain_info.domain.startswith("local:"):
-                domain_info.resolved = True
-                final_domains.append(domain_info)
-                resolved_count += 1
-            elif domain_info.domain != domain_info.ip_address:
-                domain_info.resolved = True
-                final_domains.append(domain_info)
-                resolved_count += 1
-            else:
-                domain_info.resolved = False
-                final_domains.append(domain_info)
-                unresolved_count += 1
-        
-        sorted_domains = sorted(
-            final_domains,
-            key=lambda x: x.access_count,
-            reverse=True
-        )
+        sorted_domains = sorted(final_domains, key=lambda x: x.access_count, reverse=True)
         
         return {
             "success": True,

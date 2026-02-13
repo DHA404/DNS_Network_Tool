@@ -5,7 +5,7 @@ import psutil
 import os
 import signal
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass, field
 from collections import defaultdict
 
@@ -98,7 +98,7 @@ class ProcessManager:
         return processes[:limit]
     
     def get_process_details_batch(self, pids: List[int]) -> Dict[int, ProcessInfo]:
-        """批量获取进程详细信息（按需加载）
+        """批量获取进程详细信息（并行处理优化）
         
         Args:
             pids: 要获取详情的PID列表
@@ -106,12 +106,32 @@ class ProcessManager:
         Returns:
             PID到进程信息的映射
         """
-        results = {}
+        import concurrent.futures
         
-        for pid in pids:
-            info = self.get_process_by_pid(pid)
-            if info:
-                results[pid] = info
+        results: Dict[int, ProcessInfo] = {}
+        
+        def fetch_process_info(pid: int) -> Optional[Tuple[int, ProcessInfo]]:
+            try:
+                info = self.get_process_by_pid(pid)
+                if info:
+                    return (pid, info)
+            except Exception:
+                pass
+            return None
+        
+        max_workers = min(10, len(pids))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(fetch_process_info, pid): pid for pid in pids}
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        pid, info = result
+                        results[pid] = info
+                except Exception:
+                    pass
         
         return results
     

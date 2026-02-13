@@ -398,41 +398,6 @@ class SmartDNSPool:
         
         self.server_grouper.update_server_latency(server, response_time_ms)
 
-    def update_server_metrics(
-        self,
-        server: str,
-        success: bool,
-        response_time_ms: float
-    ):
-        """更新服务器指标"""
-        with self._lock:
-            if server not in self._servers:
-                return
-
-            metrics = self._servers[server]
-            metrics.total_requests += 1
-            metrics.response_times.append(response_time_ms)
-
-            if len(metrics.response_times) > 20:
-                metrics.response_times.pop(0)
-
-            if success:
-                metrics.successful_requests += 1
-                metrics.last_success_time = time.time()
-                metrics.circuit_breaker.record_success()
-            else:
-                metrics.failed_requests += 1
-                metrics.last_failure_time = time.time()
-                metrics.circuit_breaker.record_failure()
-
-            if metrics.total_requests > 0:
-                metrics.error_rate = metrics.failed_requests / metrics.total_requests
-
-            if metrics.response_times:
-                metrics.avg_response_time = statistics.mean(metrics.response_times)
-
-            metrics.score = self._calculate_score(metrics)
-
     def _calculate_score(self, metrics: ServerMetrics) -> float:
         """计算服务器综合评分 (0-100)"""
         if metrics.total_requests == 0:

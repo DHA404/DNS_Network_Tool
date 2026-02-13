@@ -5,7 +5,7 @@ import os
 import logging
 import sys
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Callable, Optional
 from terminal_utils import TerminalUtils, Color
 from config_utils import ConfigManager, ConfigEditor
 from log_utils import LogManager
@@ -66,17 +66,177 @@ class DNSNetworkTool:
         print("6. 退出程序")
         print(TerminalUtils.colored("=" * 60, Color.BLUE, Color.BOLD))
 
-    def run(self):
-        """主程序运行逻辑"""
-        # 初始化开发者模式状态
+    def _handle_domain_test(self, is_dev_mode: bool) -> bool:
+        """处理域名测试选项
+        
+        Args:
+            is_dev_mode: 是否为开发者模式
+            
+        Returns:
+            bool: 当前的开发者模式状态（未改变）
+        """
+        logger.info("选择了域名输入并测试")
+        if is_dev_mode:
+            logger.debug("开始执行域名输入并测试功能")
+        performance_monitor.start_section("域名输入并测试")
+        self.domain_input_and_test()
+        performance_monitor.end_section("域名输入并测试")
+        if is_dev_mode:
+            logger.debug("域名输入并测试功能执行完毕")
+        return is_dev_mode
+
+    def _handle_dns_config(self, is_dev_mode: bool) -> bool:
+        """处理DNS配置选项
+        
+        Args:
+            is_dev_mode: 是否为开发者模式
+            
+        Returns:
+            bool: 当前的开发者模式状态（未改变）
+        """
+        logger.info("选择了配置 DNS 服务器")
+        if is_dev_mode:
+            logger.debug("开始执行配置 DNS 服务器功能")
+        performance_monitor.start_section("配置 DNS 服务器")
+        self.configure_dns_servers()
+        performance_monitor.end_section("配置 DNS 服务器")
+        if is_dev_mode:
+            logger.debug("配置 DNS 服务器功能执行完毕")
+        return is_dev_mode
+
+    def _handle_test_params(self, is_dev_mode: bool) -> bool:
+        """处理测试参数配置选项
+        
+        Args:
+            is_dev_mode: 是否为开发者模式
+            
+        Returns:
+            bool: 当前的开发者模式状态（未改变）
+        """
+        logger.info("选择了配置测试参数")
+        if is_dev_mode:
+            logger.debug("开始执行配置测试参数功能")
+        performance_monitor.start_section("配置测试参数")
+        self.configure_test_params()
+        performance_monitor.end_section("配置测试参数")
+        if is_dev_mode:
+            logger.debug("配置测试参数功能执行完毕")
+        return is_dev_mode
+
+    def _handle_dev_mode_toggle(self, is_dev_mode: bool) -> bool:
+        """处理开发者模式切换
+        
+        Args:
+            is_dev_mode: 当前开发者模式状态
+            
+        Returns:
+            bool: 切换后的开发者模式状态
+        """
+        is_dev_mode = not is_dev_mode
+        status = "开启" if is_dev_mode else "关闭"
+        print(TerminalUtils.colored(f"开发者模式已{status}！", Color.GREEN if is_dev_mode else Color.RED))
+        logger.info(f"开发者模式已{status}")
+        
+        if is_dev_mode:
+            log_manager.set_level(logging.DEBUG)
+            logger.debug("日志级别已设置为DEBUG")
+        else:
+            log_manager.set_level(logging.INFO)
+            logger.info("日志级别已设置为INFO")
+        
+        TerminalUtils.pause()
+        return is_dev_mode
+
+    def _handle_init_config(self, is_dev_mode: bool) -> bool:
+        """处理初始化配置向导
+        
+        Args:
+            is_dev_mode: 是否为开发者模式
+            
+        Returns:
+            bool: 当前的开发者模式状态（未改变）
+        """
+        logger.info("选择了初始化配置向导")
+        if is_dev_mode:
+            logger.debug("开始执行初始化配置向导")
+        performance_monitor.start_section("初始化配置向导")
+        init_manager = InitConfigManager(self.config_manager)
+        init_manager.show_init_menu()
+        self.config = self.config_manager.get_config()
+        self.dns_servers = self.config["dns_servers"]
+        self.test_params = self.config["test_params"]
+        performance_monitor.end_section("初始化配置向导")
+        if is_dev_mode:
+            logger.debug("初始化配置向导执行完毕")
+        return is_dev_mode
+
+    def _handle_exit(self, is_dev_mode: bool) -> bool:
+        """处理退出程序
+        
+        Args:
+            is_dev_mode: 是否为开发者模式
+            
+        Returns:
+            bool: 返回None表示程序应退出
+        """
+        logger.info("选择了退出程序")
+        if is_dev_mode:
+            logger.debug("开始执行退出程序功能")
+        print(TerminalUtils.colored("感谢使用 DNS 解析与网络测试工具，再见！", Color.GREEN))
+        if is_dev_mode:
+            logger.debug("停止性能监控并生成报告")
+        performance_monitor.stop()
+        performance_monitor.print_report()
+        if is_dev_mode:
+            logger.debug("程序执行完毕，正在退出")
+        return None
+
+    def _handle_reset_init(self, is_dev_mode: bool) -> bool:
+        """处理重置初始化记录
+        
+        Args:
+            is_dev_mode: 是否为开发者模式
+            
+        Returns:
+            bool: 当前的开发者模式状态（未改变）
+        """
+        logger.info("选择了重置初始化记录")
+        if is_dev_mode:
+            logger.debug("开始执行重置初始化记录")
+        performance_monitor.start_section("重置初始化记录")
+        init_manager = InitConfigManager(self.config_manager)
+        init_manager.reset_init_record()
+        performance_monitor.end_section("重置初始化记录")
+        if is_dev_mode:
+            logger.debug("重置初始化记录执行完毕")
+        TerminalUtils.pause()
+        return is_dev_mode
+
+    def _get_menu_handlers(self) -> Dict[str, Callable[[bool], Optional[bool]]]:
+        """获取菜单处理器字典
+        
+        Returns:
+            Dict[str, Callable]: 选项到处理函数的映射
+        """
+        return {
+            "1": self._handle_domain_test,
+            "2": self._handle_dns_config,
+            "3": self._handle_test_params,
+            "4": self._handle_dev_mode_toggle,
+            "5": self._handle_init_config,
+            "6": self._handle_exit,
+            "802": self._handle_reset_init,
+        }
+
+    def run(self) -> None:
+        """主程序运行逻辑 - 使用字典调度模式"""
         is_dev_mode = False
         
-        # 开始执行主程序
         logger.info("开始执行主程序")
-        
-        # 开始整体性能监控
         performance_monitor.start()
         logger.info("性能监控已启动")
+
+        menu_handlers = self._get_menu_handlers()
 
         while True:
             logger.info("显示主菜单")
@@ -84,85 +244,12 @@ class DNSNetworkTool:
             choice = input("请输入选项 (1-6): ")
             logger.info(f"用户输入选项: {choice}")
 
-            if choice == "1":
-                logger.info("选择了域名输入并测试")
-                if is_dev_mode:
-                    logger.debug("开始执行域名输入并测试功能")
-                performance_monitor.start_section("域名输入并测试")
-                self.domain_input_and_test()
-                performance_monitor.end_section("域名输入并测试")
-                if is_dev_mode:
-                    logger.debug("域名输入并测试功能执行完毕")
-            elif choice == "2":
-                logger.info("选择了配置 DNS 服务器")
-                if is_dev_mode:
-                    logger.debug("开始执行配置 DNS 服务器功能")
-                performance_monitor.start_section("配置 DNS 服务器")
-                self.configure_dns_servers()
-                performance_monitor.end_section("配置 DNS 服务器")
-                if is_dev_mode:
-                    logger.debug("配置 DNS 服务器功能执行完毕")
-            elif choice == "3":
-                logger.info("选择了配置测试参数")
-                if is_dev_mode:
-                    logger.debug("开始执行配置测试参数功能")
-                performance_monitor.start_section("配置测试参数")
-                self.configure_test_params()
-                performance_monitor.end_section("配置测试参数")
-                if is_dev_mode:
-                    logger.debug("配置测试参数功能执行完毕")
-            elif choice == "4":
-                is_dev_mode = not is_dev_mode
-                status = "开启" if is_dev_mode else "关闭"
-                print(TerminalUtils.colored(f"开发者模式已{status}！", Color.GREEN if is_dev_mode else Color.RED))
-                logger.info(f"开发者模式已{status}")
-                
-                # 调整日志级别
-                if is_dev_mode:
-                    log_manager.set_level(logging.DEBUG)
-                    logger.debug("日志级别已设置为DEBUG")
-                else:
-                    log_manager.set_level(logging.INFO)
-                    logger.info("日志级别已设置为INFO")
-                
-                TerminalUtils.pause()
-            elif choice == "5":
-                logger.info("选择了初始化配置向导")
-                if is_dev_mode:
-                    logger.debug("开始执行初始化配置向导")
-                performance_monitor.start_section("初始化配置向导")
-                init_manager = InitConfigManager(self.config_manager)
-                init_manager.show_init_menu()
-                # 重新加载配置
-                self.config = self.config_manager.get_config()
-                self.dns_servers = self.config["dns_servers"]
-                self.test_params = self.config["test_params"]
-                performance_monitor.end_section("初始化配置向导")
-                if is_dev_mode:
-                    logger.debug("初始化配置向导执行完毕")
-            elif choice == "6":
-                logger.info("选择了退出程序")
-                if is_dev_mode:
-                    logger.debug("开始执行退出程序功能")
-                print(TerminalUtils.colored("感谢使用 DNS 解析与网络测试工具，再见！", Color.GREEN))
-                if is_dev_mode:
-                    logger.debug("停止性能监控并生成报告")
-                performance_monitor.stop()
-                performance_monitor.print_report()
-                if is_dev_mode:
-                    logger.debug("程序执行完毕，正在退出")
-                break
-            elif choice == "802":
-                logger.info("选择了重置初始化记录")
-                if is_dev_mode:
-                    logger.debug("开始执行重置初始化记录")
-                performance_monitor.start_section("重置初始化记录")
-                init_manager = InitConfigManager(self.config_manager)
-                init_manager.reset_init_record()
-                performance_monitor.end_section("重置初始化记录")
-                if is_dev_mode:
-                    logger.debug("重置初始化记录执行完毕")
-                TerminalUtils.pause()
+            handler = menu_handlers.get(choice)
+            if handler:
+                result = handler(is_dev_mode)
+                if result is None:
+                    break
+                is_dev_mode = result
             else:
                 logger.warning(f"无效选项: {choice}")
                 print(TerminalUtils.colored("无效选项，请重新输入！", Color.RED))

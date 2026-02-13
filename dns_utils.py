@@ -6,9 +6,8 @@ import socket
 import concurrent.futures
 import threading
 import time
-import requests
 import psutil
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from terminal_utils import TerminalUtils, Color
 
 
@@ -26,18 +25,24 @@ class DNSResolver:
         stats: 解析统计信息
     """
     
-    def __init__(self, dns_servers=None, timeout=2, dns_threads=30):
+    def __init__(self, dns_servers=None, timeout=2, dns_threads=30, circuit_breaker_threshold=3, circuit_breaker_timeout=30):
         """初始化DNS解析器
         
         Args:
             dns_servers: DNS服务器IP地址列表，默认为常用公共DNS服务器
             timeout: 基础超时时间（秒），默认2秒
             dns_threads: 最大并发线程数，默认30
+            circuit_breaker_threshold: 熔断阈值，连续失败多少次后触发熔断，默认3次
+            circuit_breaker_timeout: 熔断超时时间（秒），默认30秒
         """
         self.dns_servers = dns_servers or [
             "8.8.8.8", "1.1.1.1", "9.9.9.9", "208.67.222.222", "4.2.2.1",
         ]
         self.base_timeout = timeout
+        
+        # 熔断配置
+        self.circuit_breaker_threshold = circuit_breaker_threshold
+        self.circuit_breaker_timeout = circuit_breaker_timeout
 
         cpu_count = os.cpu_count() or 4
         try:
@@ -190,15 +195,15 @@ class DNSResolver:
             bool: 如果服务器被阻断返回True，否则返回False
             
         Notes:
-            - 连续失败3次后触发熔断
-            - 熔断持续时间为30秒
+            - 连续失败达到阈值后触发熔断
+            - 熔断持续时间为配置的circuit_breaker_timeout
         """
         with self._retry_lock:
             if dns_server in self._failed_servers:
                 fail_info = self._failed_servers[dns_server]
-                if fail_info['count'] >= 3:
+                if fail_info['count'] >= self.circuit_breaker_threshold:
                     time_since_first = time.time() - fail_info['first_failure']
-                    if time_since_first < 30:
+                    if time_since_first < self.circuit_breaker_timeout:
                         return True
                     else:
                         del self._failed_servers[dns_server]
@@ -285,90 +290,109 @@ class DNSResolver:
         """
         start_time = time.time()
         try:
-            import dns.resolver
-
-            resolver = dns.resolver.Resolver()
-            resolver.nameservers = [dns_server]
-            resolver.timeout = timeout
-            resolver.lifetime = timeout
-            ips = []
-            
-            def resolve_record(record_type):
-                """解析指定类型的DNS记录"""
-                try:
-                    answers = resolver.resolve(domain, record_type)
-                    return [rdata.address for rdata in answers]
-                except Exception:
-                    return []
-            
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                future_a = executor.submit(resolve_record, "A")
-                future_aaaa = executor.submit(resolve_record, "AAAA")
-                
-                ips.extend(future_a.result())
-                ips.extend(future_aaaa.result())
-            
-            if not ips:
-                raise Exception(f"DNS解析失败: 未从服务器 {dns_server} 解析到任何IP地址")
-
-            end_time = time.time()
-            elapsed = round((end_time - start_time) * 1000, 2)
-
-            self._update_server_performance(dns_server, elapsed)
-            self._record_success(dns_server)
-
-            with self.stats_lock:
-                self.stats['total_queries'] += 1
-                self.stats['successful_queries'] += 1
-                self.stats['total_response_time_ms'] += elapsed
-
-            return {
-                "dns_server": dns_server,
-                "ips": list(set(ips)),
-                "success": True,
-                "elapsed": elapsed,
-                "error": None,
-                "speed_tier": self._get_server_speed_tier(dns_server)
-            }
+            ips, elapsed = self._resolve_with_dnspython(domain, dns_server, timeout, start_time)
         except ImportError:
-            ips = []
+            ips, elapsed = self._resolve_with_socket(domain, start_time)
+        
+        if not ips:
+            raise Exception(f"DNS解析失败: 未能解析到任何IP地址")
+
+        self._update_server_performance(dns_server, elapsed)
+        self._record_success(dns_server)
+
+        with self.stats_lock:
+            self.stats['total_queries'] += 1
+            self.stats['successful_queries'] += 1
+            self.stats['total_response_time_ms'] += elapsed
+
+        return {
+            "dns_server": dns_server,
+            "ips": list(set(ips)),
+            "success": True,
+            "elapsed": elapsed,
+            "error": None,
+            "speed_tier": self._get_server_speed_tier(dns_server)
+        }
+
+    def _resolve_with_dnspython(self, domain: str, dns_server: str, timeout: float, start_time: float) -> Tuple[List[str], float]:
+        """使用dnspython库解析域名
+        
+        Args:
+            domain: 要解析的域名
+            dns_server: DNS服务器IP地址
+            timeout: 超时时间（秒）
+            start_time: 开始时间戳
+            
+        Returns:
+            Tuple[List[str], float]: (IP地址列表, 响应时间毫秒)
+            
+        Raises:
+            ImportError: dnspython库不可用时抛出
+            Exception: 解析失败时抛出
+        """
+        import dns.resolver
+        import concurrent.futures
+
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = [dns_server]
+        resolver.timeout = timeout
+        resolver.lifetime = timeout
+        ips = []
+        
+        def resolve_record(record_type: str) -> List[str]:
+            """解析指定类型的DNS记录
+            
+            Args:
+                record_type: DNS记录类型（A或AAAA）
+                
+            Returns:
+                List[str]: 解析到的IP地址列表
+            """
             try:
-                info = socket.getaddrinfo(domain, None, socket.AF_INET, socket.SOCK_STREAM)
-                ips = [ip[4][0] for ip in info]
-            except socket.gaierror as e:
-                pass
+                answers = resolver.resolve(domain, record_type)
+                return [rdata.address for rdata in answers]
+            except Exception:
+                return []
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_a = executor.submit(resolve_record, "A")
+            future_aaaa = executor.submit(resolve_record, "AAAA")
+            
+            ips.extend(future_a.result())
+            ips.extend(future_aaaa.result())
+        
+        if not ips:
+            raise Exception(f"未从服务器 {dns_server} 解析到任何IP地址")
 
-            try:
-                info = socket.getaddrinfo(domain, None, socket.AF_INET6, socket.SOCK_STREAM)
-                ips.extend([ip[4][0] for ip in info])
-            except socket.gaierror as e:
-                pass
+        elapsed = round((time.time() - start_time) * 1000, 2)
+        return ips, elapsed
 
-            end_time = time.time()
-            elapsed = round((end_time - start_time) * 1000, 2)
+    def _resolve_with_socket(self, domain: str, start_time: float) -> Tuple[List[str], float]:
+        """使用socket方法解析域名（回退方案）
+        
+        Args:
+            domain: 要解析的域名
+            start_time: 开始时间戳
+            
+        Returns:
+            Tuple[List[str], float]: (IP地址列表, 响应时间毫秒)
+        """
+        ips = []
+        
+        try:
+            info = socket.getaddrinfo(domain, None, socket.AF_INET, socket.SOCK_STREAM)
+            ips.extend([ip[4][0] for ip in info])
+        except socket.gaierror:
+            pass
 
-            if ips:
-                self._update_server_performance(dns_server, elapsed)
-                self._record_success(dns_server)
+        try:
+            info = socket.getaddrinfo(domain, None, socket.AF_INET6, socket.SOCK_STREAM)
+            ips.extend([ip[4][0] for ip in info])
+        except socket.gaierror:
+            pass
 
-                with self.stats_lock:
-                    self.stats['total_queries'] += 1
-                    self.stats['successful_queries'] += 1
-                    self.stats['total_response_time_ms'] += elapsed
-
-                return {
-                    "dns_server": dns_server,
-                    "ips": list(set(ips)),
-                    "success": True,
-                    "elapsed": elapsed,
-                    "error": None,
-                    "speed_tier": self._get_server_speed_tier(dns_server)
-                }
-            else:
-                raise Exception(f"DNS解析失败: 使用socket方法也未能解析到任何IP地址")
-        except Exception as e:
-            raise Exception(f"DNS解析异常: {str(e)}")
+        elapsed = round((time.time() - start_time) * 1000, 2)
+        return ips, elapsed
 
     def resolve_domain(self, domain, dns_server):
         """使用指定DNS服务器解析域名（带熔断和重试）

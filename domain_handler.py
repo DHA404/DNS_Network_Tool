@@ -11,7 +11,7 @@ from domain_utils import DomainInputHandler
 class DomainHandler:
     """域名处理器 - 统一管理域名相关的所有操作"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化域名处理器"""
         pass
     

@@ -2,17 +2,20 @@
 # HTTP会话管理模块 - 优化版本
 
 import requests
+import threading
 from typing import Optional
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
 class SessionManager:
-    """HTTP会话管理器，提供连接池和重试机制 - 优化版本"""
+    """HTTP会话管理器，提供连接池和重试机制 - 线程安全版本"""
 
     _instance: Optional['SessionManager'] = None
+    _lock: threading.Lock = threading.Lock()
 
     def __init__(self) -> None:
+        """初始化会话管理器"""
         self._session: Optional[requests.Session] = None
         self._init_session()
 
@@ -68,7 +71,9 @@ class SessionManager:
 
 
 def get_session_manager() -> SessionManager:
-    """获取会话管理器单例"""
+    """获取会话管理器单例（线程安全）"""
     if SessionManager._instance is None:
-        SessionManager._instance = SessionManager()
+        with SessionManager._lock:
+            if SessionManager._instance is None:
+                SessionManager._instance = SessionManager()
     return SessionManager._instance

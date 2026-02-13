@@ -6,6 +6,7 @@ import os
 import socket
 import threading
 import time
+import copy
 from typing import Dict, Any, List, Tuple, Optional
 from terminal_utils import TerminalUtils, Color
 
@@ -25,11 +26,16 @@ class ConfigManager:
         # 配置模板
         self.config_template: Dict[str, Any] = {
             "dns_servers": [
+                # 国内常用DNS
+                "223.5.5.5",  # 阿里DNS
+                "119.29.29.29",  # 腾讯DNS
+                "180.76.76.76",  # 百度DNS
+                "114.114.114.114",  # 114DNS
+                # 国际常用DNS
                 "8.8.8.8",  # Google DNS
                 "1.1.1.1",  # Cloudflare DNS
                 "9.9.9.9",  # Quad9 DNS
                 "208.67.222.222",  # OpenDNS
-                "4.2.2.1",  # Level3 DNS
             ],
             "test_params": {
                 "ping_count": 10,
@@ -77,8 +83,8 @@ class ConfigManager:
             },
         }
 
-        # 默认配置（与模板相同）
-        self.default_config: Dict[str, Any] = self.config_template.copy()
+        # 默认配置（与模板相同，使用深拷贝避免嵌套字典共享引用）
+        self.default_config: Dict[str, Any] = copy.deepcopy(self.config_template)
 
         self.config: Dict[str, Any] = self.load_config()
         # 配置文件最后修改时间，用于热重载
@@ -97,8 +103,8 @@ class ConfigManager:
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     config = json.load(f)
 
-                # 创建一个默认配置的副本
-                merged_config = self.default_config.copy()
+                # 创建一个默认配置的深拷贝
+                merged_config = copy.deepcopy(self.default_config)
 
                 # 处理顶层配置，但跳过嵌套配置，因为我们需要特殊处理
                 for key, value in config.items():
@@ -470,245 +476,240 @@ class ConfigEditor:
             else:
                 print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
 
+    def _get_param_config(self) -> Dict[str, Dict[str, Any]]:
+        """获取测试参数配置元数据
+        
+        Returns:
+            参数配置字典，包含每个参数的显示名称、类型、范围等信息
+        """
+        return {
+            "ping_count": {
+                "name": "ping测试次数",
+                "type": "int",
+                "min": 1,
+                "max": 500,
+                "default": 10,
+                "unit": "次",
+                "desc": "每个IP执行的ping测试包数量，影响延迟计算准确性"
+            },
+            "ping_timeout": {
+                "name": "ping超时时间",
+                "type": "float",
+                "min": 0.1,
+                "max": 30,
+                "default": 2,
+                "unit": "秒",
+                "desc": "每个ping包的超时等待时间"
+            },
+            "ping_interval": {
+                "name": "ping测试间隔",
+                "type": "float",
+                "min": 0.01,
+                "max": 10,
+                "default": 0.5,
+                "unit": "秒",
+                "desc": "连续ping包之间的等待时间"
+            },
+            "test_duration": {
+                "name": "速率测试时长",
+                "type": "int",
+                "min": 1,
+                "max": 600,
+                "default": 10,
+                "unit": "秒",
+                "desc": "每个IP执行速率测试的持续时间"
+            },
+            "packet_size": {
+                "name": "数据包大小",
+                "type": "int",
+                "min": 64,
+                "max": 65535,
+                "default": 1024,
+                "unit": "字节",
+                "desc": "网络测试使用的数据包大小"
+            },
+            "concurrent_connections": {
+                "name": "并发连接数",
+                "type": "int",
+                "min": 1,
+                "max": 500,
+                "default": 4,
+                "unit": "个",
+                "desc": "速率测试时使用的并发连接数量"
+            },
+            "max_threads": {
+                "name": "最大线程数",
+                "type": "int",
+                "min": 5,
+                "max": 500,
+                "default": 30,
+                "unit": "个",
+                "desc": "并行处理IP测试的最大线程数量"
+            },
+            "dns_timeout": {
+                "name": "DNS解析超时时间",
+                "type": "float",
+                "min": 1,
+                "max": 60,
+                "default": 5,
+                "unit": "秒",
+                "desc": "域名解析的最大等待时间"
+            },
+            "top_n_ips": {
+                "name": "显示的最优IP数量",
+                "type": "int",
+                "min": 1,
+                "max": 100,
+                "default": 10,
+                "unit": "个",
+                "desc": "测试结果中显示的最优IP数量"
+            },
+            "dns_threads": {
+                "name": "DNS解析线程数",
+                "type": "int",
+                "min": 1,
+                "max": 200,
+                "default": 10,
+                "unit": "个",
+                "desc": "同时解析多个域名的最大线程数量"
+            }
+        }
+
+    def _edit_numeric_param(self, param_key: str, config: Dict[str, Any], params: Dict[str, Any]) -> None:
+        """编辑数值类型参数
+        
+        Args:
+            param_key: 参数键名
+            config: 参数配置信息
+            params: 当前参数值字典
+        """
+        try:
+            current_value = params.get(param_key, config["default"])
+            prompt = f"当前{config['name']}: {current_value}{config['unit']}\n"
+            prompt += f"请输入新的{config['name']} ({config['min']}-{config['max']}): "
+            
+            if config["type"] == "int":
+                value = int(input(prompt))
+            else:
+                value = float(input(prompt))
+            
+            if config["min"] <= value <= config["max"]:
+                success, message = self.config_manager.update_test_param(param_key, value)
+                print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
+            else:
+                print(TerminalUtils.colored(
+                    f"{config['name']}必须在{config['min']}-{config['max']}{config['unit']}之间", 
+                    Color.RED
+                ))
+        except ValueError:
+            print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
+
+    def _edit_choice_param(self, param_key: str, choices: Dict[str, str], params: Dict[str, Any]) -> None:
+        """编辑选项类型参数
+        
+        Args:
+            param_key: 参数键名
+            choices: 选项字典 {选项值: 显示名称}
+            params: 当前参数值字典
+        """
+        current_value = params.get(param_key, list(choices.keys())[0])
+        print(f"\n当前值: {current_value}")
+        print("选择选项:")
+        for i, (value, name) in enumerate(choices.items(), 1):
+            marker = " (当前)" if value == current_value else ""
+            print(f"{i}. {name}{marker}")
+        
+        choice = input(f"请输入选项 (1-{len(choices)}): ")
+        choice_list = list(choices.keys())
+        idx = int(choice) - 1
+        if 0 <= idx < len(choice_list):
+            success, message = self.config_manager.update_test_param(param_key, choice_list[idx])
+            print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
+        else:
+            print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
+
+    def _edit_toggle_param(self, param_key: str, params: Dict[str, Any]) -> None:
+        """编辑开关类型参数
+        
+        Args:
+            param_key: 参数键名
+            params: 当前参数值字典
+        """
+        current_value = params.get(param_key, False)
+        new_value = not current_value
+        success, message = self.config_manager.update_test_param(param_key, new_value)
+        status = "启用" if new_value else "禁用"
+        print(TerminalUtils.colored(f"{message.split('：')[0] if '：' in message else param_key}已{status}", 
+                                     Color.GREEN if success else Color.RED))
+
     def edit_test_params(self) -> None:
-        """编辑测试参数"""
+        """编辑测试参数 - 重构版本，使用配置驱动模式"""
+        param_config = self._get_param_config()
+        
         while True:
             print(TerminalUtils.colored("\n=== 测试参数配置 ===", Color.CYAN, Color.BOLD))
             params = self.config_manager.get_test_params()
 
             for param, value in params.items():
-                param_name = param.replace("_", " ").title()
-                print(f"{param_name}: {value}")
+                if param in param_config:
+                    config = param_config[param]
+                    unit = config.get("unit", "")
+                    print(f"{config['name']}: {value}{unit}")
+                elif param in ["enable_ipv6", "auto_save_results", "enable_download_test", "enable_upload_test"]:
+                    status = "启用" if value else "禁用"
+                    param_name = {
+                        "enable_ipv6": "IPv6测试",
+                        "auto_save_results": "自动保存结果",
+                        "enable_download_test": "下载速度测试",
+                        "enable_upload_test": "上传速度测试"
+                    }.get(param, param)
+                    print(f"{param_name}: {status}")
+                elif param in ["speed_test_type", "output_format"]:
+                    print(f"{param}: {value}")
 
             print("\n操作选项:")
-            print("1. 修改ping测试次数 - 每个IP执行的ping测试包数量，影响延迟计算准确性")
-            print("2. 修改ping超时时间 - 每个ping包的超时等待时间，单位：秒")
-            print("3. 修改ping测试间隔 - 连续ping包之间的等待时间，单位：秒")
-            print("4. 修改速率测试时长 - 每个IP执行速率测试的持续时间，单位：秒")
-            print("5. 修改数据包大小 - 网络测试使用的数据包大小，单位：字节")
-            print("6. 修改并发连接数 - 速率测试时使用的并发连接数量")
-            print("7. 修改最大线程数 - 并行处理IP测试的最大线程数量")
-            print("8. 修改DNS解析超时时间 - 域名解析的最大等待时间，单位：秒")
-            print("9. 修改显示的最优IP数量 - 测试结果中显示的最优IP数量")
-            print("10. 修改速率测试类型 - 选择TCP或UDP协议进行速率测试")
-            print("11. 启用/禁用IPv6测试 - 是否对IPv6地址进行测试")
-            print("12. 修改默认输出格式 - 设置测试结果的默认保存格式（txt/csv）")
-            print("13. 修改DNS解析线程数 - 同时解析多个域名的最大线程数量")
-            print("14. 启用/禁用自动保存结果 - 是否自动保存测试结果到文件")
-            print("15. 启用/禁用下载速度测试 - 是否对IP执行下载速度测试")
-            print("16. 启用/禁用上传速度测试 - 是否对IP执行上传速度测试")
-            print("19. 保存并返回 - 保存当前配置并返回主菜单")
+            menu_items = [
+                ("1", "修改ping测试次数"),
+                ("2", "修改ping超时时间"),
+                ("3", "修改ping测试间隔"),
+                ("4", "修改速率测试时长"),
+                ("5", "修改数据包大小"),
+                ("6", "修改并发连接数"),
+                ("7", "修改最大线程数"),
+                ("8", "修改DNS解析超时时间"),
+                ("9", "修改显示的最优IP数量"),
+                ("10", "修改速率测试类型"),
+                ("11", "启用/禁用IPv6测试"),
+                ("12", "修改默认输出格式"),
+                ("13", "修改DNS解析线程数"),
+                ("14", "启用/禁用自动保存结果"),
+                ("15", "启用/禁用下载速度测试"),
+                ("16", "启用/禁用上传速度测试"),
+                ("17", "保存并返回")
+            ]
+            for num, desc in menu_items:
+                print(f"{num}. {desc}")
 
             choice = input("请输入选项 (1-17): ")
+            param_keys = list(param_config.keys())
 
-            if choice == "1":
-                # 修改ping测试次数
-                try:
-                    current_value = params.get("ping_count", 10)
-                    value = int(input(f"当前ping测试次数: {current_value}\n请输入新的ping测试次数 (1-500): "))
-                    if 1 <= value <= 500:
-                        success, message = self.config_manager.update_test_param("ping_count", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("ping测试次数必须在1-100之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "2":
-                # 修改ping超时时间
-                try:
-                    current_value = params.get("ping_timeout", 2)
-                    value = float(input(f"当前ping超时时间: {current_value}秒\n请输入新的ping超时时间 (0.1-30): "))
-                    if 0.1 <= value <= 30:
-                        success, message = self.config_manager.update_test_param("ping_timeout", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("ping超时时间必须在0.1-10秒之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "3":
-                # 修改ping测试间隔
-                try:
-                    current_value = params.get("ping_interval", 0.5)
-                    value = float(input(f"当前ping测试间隔: {current_value}秒\n请输入新的ping测试间隔时间 (0.01-10): "))
-                    if 0.01 <= value <= 10:
-                        success, message = self.config_manager.update_test_param("ping_interval", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("ping测试间隔必须在0.1-5秒之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "4":
-                # 修改速率测试时长
-                try:
-                    current_value = params.get("test_duration", 10)
-                    value = int(input(f"当前速率测试时长: {current_value}秒\n请输入新的速率测试时长 (1-600): "))
-                    if 1 <= value <= 600:
-                        success, message = self.config_manager.update_test_param("test_duration", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("速率测试时长必须在1-300秒之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "5":
-                # 修改数据包大小
-                try:
-                    current_value = params.get("packet_size", 1024)
-                    value = int(input(f"当前数据包大小: {current_value}字节\n请输入新的数据包大小 (64-65535): "))
-                    if 64 <= value <= 65535:
-                        success, message = self.config_manager.update_test_param("packet_size", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("数据包大小必须在64-65536字节之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "6":
-                # 修改并发连接数
-                try:
-                    current_value = params.get("concurrent_connections", 4)
-                    value = int(input(f"当前并发连接数: {current_value}\n请输入新的并发连接数 (1-500): "))
-                    if 1 <= value <= 500:
-                        success, message = self.config_manager.update_test_param("concurrent_connections", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("并发连接数必须在1-100之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "7":
-                # 修改最大线程数
-                try:
-                    current_value = params.get("max_threads", 30)
-                    value = int(input(f"当前最大线程数: {current_value}\n请输入新的最大线程数 (5-500): "))
-                    if 5 <= value <= 500:
-                        success, message = self.config_manager.update_test_param("max_threads", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("最大线程数必须在5-200之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "8":
-                # 修改DNS解析超时时间
-                try:
-                    current_value = params.get("dns_timeout", 5)
-                    value = float(input(f"当前DNS解析超时时间: {current_value}秒\n请输入新的DNS解析超时时间 (1-60): "))
-                    if 1 <= value <= 60:
-                        success, message = self.config_manager.update_test_param("dns_timeout", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("DNS解析超时时间必须在1-30秒之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
-            elif choice == "9":
-                # 修改显示的最优IP数量
-                try:
-                    current_value = params.get("top_n_ips", 10)
-                    value = int(input(f"当前显示的最优IP数量: {current_value}\n请输入新的显示数量 (1-100): "))
-                    if 1 <= value <= 100:
-                        success, message = self.config_manager.update_test_param("top_n_ips", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("显示数量必须在1-50之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-
+            if choice in [str(i) for i in range(1, 11)]:
+                idx = int(choice) - 1
+                if idx < len(param_keys):
+                    self._edit_numeric_param(param_keys[idx], param_config[param_keys[idx]], params)
             elif choice == "10":
-                # 修改速率测试类型
-                current_value = params.get("speed_test_type", "tcp")
-                print(f"\n当前速率测试类型: {current_value.upper()}")
-                print("选择速率测试类型:")
-                print("1. TCP")
-                print("2. UDP")
-                type_choice = input("请输入选项 (1-2): ")
-                if type_choice == "1":
-                    speed_type = "tcp"
-                elif type_choice == "2":
-                    speed_type = "udp"
-                else:
-                    print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
-                    continue
-                success, message = self.config_manager.update_test_param("speed_test_type", speed_type)
-                print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-
+                self._edit_choice_param("speed_test_type", {"tcp": "TCP", "udp": "UDP"}, params)
             elif choice == "11":
-                # 启用/禁用IPv6测试
-                current_value = params.get("enable_ipv6", False)
-                new_value = not current_value
-                success, message = self.config_manager.update_test_param("enable_ipv6", new_value)
-                print(
-                    TerminalUtils.colored(f"IPv6测试已{'启用' if new_value else '禁用'}", Color.GREEN if success else Color.RED)
-                )
-
+                self._edit_toggle_param("enable_ipv6", params)
             elif choice == "12":
-                # 修改默认输出格式
-                current_value = params.get("output_format", "txt")
-                print(f"\n当前默认输出格式: {current_value}")
-                print("选择默认输出格式:")
-                print("1. 纯文本 (txt)")
-                print("2. CSV格式 (csv)")
-                format_choice = input("请输入选项 (1-2): ")
-                if format_choice == "1":
-                    output_format = "txt"
-                elif format_choice == "2":
-                    output_format = "csv"
-                else:
-                    print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
-                    continue
-                success, message = self.config_manager.update_test_param("output_format", output_format)
-                print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-
+                self._edit_choice_param("output_format", {"txt": "纯文本 (txt)", "csv": "CSV格式 (csv)"}, params)
             elif choice == "13":
-                # 修改DNS解析线程数
-                try:
-                    current_value = params.get("dns_threads", 10)
-                    value = int(input(f"当前DNS解析线程数: {current_value}\n请输入新的DNS解析线程数 (1-200): "))
-                    if 1 <= value <= 200:
-                        success, message = self.config_manager.update_test_param("dns_threads", value)
-                        print(TerminalUtils.colored(message, Color.GREEN if success else Color.RED))
-                    else:
-                        print(TerminalUtils.colored("DNS解析线程数必须在1-100之间", Color.RED))
-                except ValueError:
-                    print(TerminalUtils.colored("无效的输入，请输入数字", Color.RED))
-            elif choice == "14":
-                # 启用/禁用自动保存结果
-                current_value = params.get("auto_save_results", False)
-                new_value = not current_value
-                success, message = self.config_manager.update_test_param("auto_save_results", new_value)
-                print(
-                    TerminalUtils.colored(
-                        f"自动保存结果已{'启用' if new_value else '禁用'}", Color.GREEN if success else Color.RED
-                    )
-                )
-            elif choice == "15":
-                # 启用/禁用下载速度测试
-                current_value = params.get("enable_download_test", True)
-                new_value = not current_value
-                success, message = self.config_manager.update_test_param("enable_download_test", new_value)
-                print(
-                    TerminalUtils.colored(
-                        f"下载速度测试已{'启用' if new_value else '禁用'}", Color.GREEN if success else Color.RED
-                    )
-                )
-            elif choice == "16":
-                # 启用/禁用上传速度测试
-                current_value = params.get("enable_upload_test", False)
-                new_value = not current_value
-                success, message = self.config_manager.update_test_param("enable_upload_test", new_value)
-                print(
-                    TerminalUtils.colored(
-                        f"上传速度测试已{'启用' if new_value else '禁用'}", Color.GREEN if success else Color.RED
-                    )
-                )
+                self._edit_numeric_param("dns_threads", param_config["dns_threads"], params)
+            elif choice in ["14", "15", "16"]:
+                toggle_map = {"14": "auto_save_results", "15": "enable_download_test", "16": "enable_upload_test"}
+                self._edit_toggle_param(toggle_map[choice], params)
             elif choice == "17":
-                # 保存并返回
                 break
-
             else:
                 print(TerminalUtils.colored("无效选项，请重新输入", Color.RED))
 

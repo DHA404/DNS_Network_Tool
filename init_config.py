@@ -7,7 +7,7 @@ import concurrent.futures
 import time
 import json
 import os
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Callable
 from datetime import datetime
 
 # 导入项目模块
@@ -147,27 +147,36 @@ class SystemPerformanceTester:
         except Exception as e:
             return False, 0.0
     
-    def find_max_concurrent_connections(self, test_range: List[int]) -> int:
-        """使用二分查找找到最大并发连接数
+    def _binary_search_test(
+        self,
+        test_range: List[int],
+        test_func: Callable[[int], Tuple[bool, float]],
+        param_name: str,
+        default_value: int = 10
+    ) -> int:
+        """通用二分查找测试方法
         
         Args:
             test_range: 测试范围列表（已排序）
+            test_func: 测试函数，接受目标值，返回 (是否成功, 成功率)
+            param_name: 参数名称，用于显示
+            default_value: 默认返回值
             
         Returns:
-            最大成功连接数
+            最大成功值
         """
         if not test_range:
-            return 10
+            return default_value
             
         left, right = 0, len(test_range) - 1
-        result = 10
+        result = default_value
         
         while left <= right:
             mid = (left + right) // 2
             target = test_range[mid]
             
-            print(f"  测试并发连接数: {target}...", end=" ")
-            success, rate = self.test_concurrent_connections(target)
+            print(f"  测试{param_name}: {target}...", end=" ")
+            success, rate = test_func(target)
             
             if success:
                 result = target
@@ -181,6 +190,22 @@ class SystemPerformanceTester:
                 break
         
         return result
+    
+    def find_max_concurrent_connections(self, test_range: List[int]) -> int:
+        """使用二分查找找到最大并发连接数
+        
+        Args:
+            test_range: 测试范围列表（已排序）
+            
+        Returns:
+            最大成功连接数
+        """
+        return self._binary_search_test(
+            test_range,
+            self.test_concurrent_connections,
+            "并发连接数",
+            default_value=10
+        )
     
     def find_max_threads(self, test_range: List[int]) -> int:
         """使用二分查找找到最大线程数
@@ -191,31 +216,12 @@ class SystemPerformanceTester:
         Returns:
             最大成功线程数
         """
-        if not test_range:
-            return 10
-            
-        left, right = 0, len(test_range) - 1
-        result = 10
-        
-        while left <= right:
-            mid = (left + right) // 2
-            target = test_range[mid]
-            
-            print(f"  测试线程数: {target}...", end=" ")
-            success, rate = self.test_max_threads(target)
-            
-            if success:
-                result = target
-                left = mid + 1
-                print(TerminalUtils.colored(f"通过 (效率: {rate:.1%})", Color.GREEN))
-            else:
-                right = mid - 1
-                print(TerminalUtils.colored(f"失败 (效率: {rate:.1%})", Color.RED))
-            
-            if self._cancelled:
-                break
-        
-        return result
+        return self._binary_search_test(
+            test_range,
+            self.test_max_threads,
+            "线程数",
+            default_value=10
+        )
     
     def find_max_dns_threads(self, test_range: List[int]) -> int:
         """使用二分查找找到最大DNS线程数
@@ -226,31 +232,12 @@ class SystemPerformanceTester:
         Returns:
             最大成功DNS线程数
         """
-        if not test_range:
-            return 10
-            
-        left, right = 0, len(test_range) - 1
-        result = 10
-        
-        while left <= right:
-            mid = (left + right) // 2
-            target = test_range[mid]
-            
-            print(f"  测试DNS线程数: {target}...", end=" ")
-            success, rate = self.test_dns_threads(target)
-            
-            if success:
-                result = target
-                left = mid + 1
-                print(TerminalUtils.colored(f"通过 (成功率: {rate:.1%})", Color.GREEN))
-            else:
-                right = mid - 1
-                print(TerminalUtils.colored(f"失败 (成功率: {rate:.1%})", Color.RED))
-            
-            if self._cancelled:
-                break
-        
-        return result
+        return self._binary_search_test(
+            test_range,
+            self.test_dns_threads,
+            "DNS线程数",
+            default_value=10
+        )
     
     def run_performance_tests_binary(self) -> Dict[str, int]:
         """使用二分查找运行性能测试（更快）

@@ -275,8 +275,8 @@ class ResultExporter:
             return False, f"不支持的输出格式: {output_format}"
 
 
-class ResultProcessor:
-    """结果处理类"""
+class ResultFilter:
+    """结果过滤和排序类"""
 
     @staticmethod
     def filter_results(results, filters):
@@ -359,7 +359,7 @@ class ResultProcessor:
     @staticmethod
     def get_top_ips(results, sort_by="latency", top_n=10):
         """获取排名靠前的IP"""
-        sorted_results = ResultProcessor.sort_results(results, sort_by)
+        sorted_results = ResultFilter.sort_results(results, sort_by)
         return sorted_results[:top_n]
 
 
@@ -430,18 +430,18 @@ class ResultManager:
 
     def __init__(self):
         self.exporter = ResultExporter()
-        self.processor = ResultProcessor()
+        self.filter = ResultFilter()
         self.display = ResultDisplay()
 
     def process_and_export(self, results, domain, options):
         """处理并导出结果"""
         # 筛选结果
         if "filters" in options:
-            results = self.processor.filter_results(results, options["filters"])
+            results = self.filter.filter_results(results, options["filters"])
 
         # 排序结果
         if "sort_by" in options:
-            results = self.processor.sort_results(results, options["sort_by"], options.get("ascending", True))
+            results = self.filter.sort_results(results, options["sort_by"], options.get("ascending", True))
 
         # 显示结果
         self.display.display_summary(results)
@@ -450,7 +450,7 @@ class ResultManager:
         # 生成hosts文件
         if options.get("generate_hosts", False):
             # 只保留最佳IP（第一个）
-            top_results = self.processor.get_top_ips(results, options.get("sort_by", "latency"))
+            top_results = self.filter.get_top_ips(results, options.get("sort_by", "latency"))
             top_ips = [top_results[0]["ip"]] if top_results else []
             hosts_content, message = self.exporter.generate_hosts_file(domain, top_ips, options.get("hosts_output_path"))
             print(f"\n{message}")

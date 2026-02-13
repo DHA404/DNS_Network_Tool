@@ -17,10 +17,12 @@ class ReportGenerator:
         """初始化报告生成器
         
         Args:
-            output_dir: 输出目录，默认为工具目录下的测试结果文件夹
+            output_dir: 输出目录，默认为程序目录下的测试结果文件夹
         """
         if output_dir is None:
-            self.output_dir = r"g:\My文件夹\编程\脚本代码\应用程序\DNS_Network_Tool\测试结果"
+            # 获取当前文件所在目录
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            self.output_dir = os.path.join(current_dir, "测试结果")
         else:
             self.output_dir = output_dir
     

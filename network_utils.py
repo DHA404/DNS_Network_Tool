@@ -7,7 +7,7 @@ import time
 import concurrent.futures
 import socket
 import threading
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from terminal_utils import TerminalUtils, Color
 
 
@@ -33,7 +33,7 @@ class PingTest:
                 # Linux/macOS需要root权限或特殊配置
                 sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
                 sock.close()
-        except Exception:
+        except (OSError, PermissionError, socket.error):
             # 无法创建ICMP socket，使用系统ping命令
             self.use_system_ping = True
 
@@ -424,7 +424,15 @@ class SpeedTest:
                     break
 
             sock.close()
-        except Exception:
+        except socket.timeout:
+            pass
+        except ConnectionResetError:
+            pass
+        except ConnectionRefusedError:
+            pass
+        except OSError:
+            pass
+        except (socket.gaierror, socket.herror):
             pass
         return bytes_received
 
@@ -488,8 +496,7 @@ class SpeedTest:
             if sock:
                 try:
                     sock.close()
-                except Exception:
-                    # 忽略关闭socket时的异常
+                except (OSError, socket.error):
                     pass
         return bytes_received
 
@@ -541,41 +548,138 @@ class SpeedTest:
                 elif avg_delay < 200 and packet_loss < 30:
                     # 较高延迟或中等丢包，网络质量较差
                     return 10.0
-        except Exception:
+        except (subprocess.SubprocessError, OSError, ValueError):
             pass
         return self.min_speed
 
-    def tcp_download_test(self, server_ip, server_port=80):
-        """TCP下载速率测试（优化准确性，减少波动）"""
-        results = {
+    def _get_speed_test_servers(self) -> List[Tuple[str, int, str]]:
+        """获取速度测试服务器列表
+        
+        Returns:
+            List[Tuple[str, int, str]]: 服务器列表，每项为 (主机, 端口, 路径)
+        """
+        return [
+            ("speed.cloudflare.com", 80, "/__down?bytes=20971520"),
+            ("speed.cloudflare.com", 443, "/__down?bytes=20971520"),
+            ("httpbin.org", 80, "/stream/20"),
+            ("ipv6.speed.cloudflare.com", 80, "/__down?bytes=20971520"),
+            ("download.thinkbroadband.com", 80, "/5MB.zip"),
+            ("ipv4.download.thinkbroadband.com", 80, "/5MB.zip"),
+            ("ipv6.download.thinkbroadband.com", 80, "/5MB.zip"),
+        ]
+
+    def _run_direct_speed_test(self, server_ip: str, server_port: int) -> int:
+        """运行直接连接速度测试
+        
+        Args:
+            server_ip: 目标服务器IP
+            server_port: 目标服务器端口
+            
+        Returns:
+            int: 接收到的字节数
+        """
+        total_bytes = 0
+        
+        try:
+            addrinfo = socket.getaddrinfo(server_ip, server_port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            family, socktype, proto, canonname, sockaddr = addrinfo[0]
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(3)
+            sock.connect(sockaddr)
+            sock.close()
+
+            def thread_target():
+                nonlocal total_bytes
+                bytes_received = self._tcp_socket_speed_test(server_ip, server_port, {})
+                total_bytes += bytes_received
+
+            threads = []
+            for _ in range(self.concurrent_connections):
+                thread = threading.Thread(target=thread_target)
+                threads.append(thread)
+                thread.start()
+
+            for thread in threads:
+                thread.join()
+
+        except (socket.error, OSError, ConnectionRefusedError):
+            pass
+        
+        return total_bytes
+
+    def _run_server_speed_test(self, servers: List[Tuple[str, int, str]]) -> int:
+        """运行服务器速度测试
+        
+        Args:
+            servers: 速度测试服务器列表
+            
+        Returns:
+            int: 接收到的字节数
+        """
+        import random
+        total_bytes = 0
+        
+        selected_servers = random.sample(servers, min(3, len(servers)))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_server = {
+                executor.submit(self._download_from_server, host, port, path): (host, port, path)
+                for host, port, path in selected_servers
+            }
+
+            for future in concurrent.futures.as_completed(future_to_server):
+                try:
+                    received_bytes = future.result()
+                    total_bytes += received_bytes
+                except (concurrent.futures.CancelledError, Exception):
+                    continue
+        
+        return total_bytes
+
+    def _calculate_filtered_speed(self, speeds: List[float]) -> float:
+        """计算过滤后的速度（去除异常值）
+        
+        Args:
+            speeds: 速度列表
+            
+        Returns:
+            float: 过滤后的平均速度
+        """
+        if not speeds:
+            return 0
+        
+        speeds.sort()
+        filtered = speeds[1:-1] if len(speeds) > 2 else speeds
+        speed = round(sum(filtered) / len(filtered), 2)
+        return max(speed, self.min_speed)
+
+    def tcp_download_test(self, server_ip: str, server_port: int = 80) -> Dict[str, Any]:
+        """TCP下载速率测试（优化准确性，减少波动）
+        
+        Args:
+            server_ip: 目标服务器IP地址
+            server_port: 目标服务器端口，默认80
+            
+        Returns:
+            Dict[str, Any]: 测试结果字典，包含速率、字节数等信息
+        """
+        results: Dict[str, Any] = {
             "ip": server_ip,
             "test_type": "download",
             "success": False,
             "speed_mbps": 0,
-            "direct_speed": 0,  # 直接连接速率
-            "server_speed": 0,  # 速度测试服务器速率
+            "direct_speed": 0,
+            "server_speed": 0,
             "bytes_received": 0,
             "duration": 0,
             "error": None,
         }
 
         try:
-            # 使用知名速度测试服务器进行测试，包括IPv6服务器
-            speed_test_servers = [
-                # 大型CDN和文件服务器，确保有大文件可以下载
-                ("speed.cloudflare.com", 80, "/__down?bytes=20971520"),  # 20MB文件
-                ("speed.cloudflare.com", 443, "/__down?bytes=20971520"),  # HTTPS测试
-                ("httpbin.org", 80, "/stream/20"),  # 20MB流式数据
-                ("ipv6.speed.cloudflare.com", 80, "/__down?bytes=20971520"),  # IPv6测试服务器
-                ("download.thinkbroadband.com", 80, "/5MB.zip"),  # 5MB测试文件
-                ("ipv4.download.thinkbroadband.com", 80, "/5MB.zip"),  # IPv4测试文件
-                ("ipv6.download.thinkbroadband.com", 80, "/5MB.zip"),  # IPv6测试文件
-            ]
-
-            # 多次测试取平均值，减少波动
+            speed_test_servers = self._get_speed_test_servers()
             test_runs = 2
-            all_direct_speeds = []
-            all_server_speeds = []
+            all_direct_speeds: List[float] = []
+            all_server_speeds: List[float] = []
             total_bytes = 0
             total_duration = 0
 
@@ -584,118 +688,40 @@ class SpeedTest:
                 run_direct_bytes = 0
                 run_server_bytes = 0
 
-                # 首先尝试连接到指定IP
-                try:
-                    # 自动检测IP类型，支持IPv4和IPv6
-                    addrinfo = socket.getaddrinfo(server_ip, server_port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-                    family, socktype, proto, canonname, sockaddr = addrinfo[0]
-                    sock = socket.socket(family, socktype, proto)
-                    sock.settimeout(3)
-                    sock.connect(sockaddr)
-                    sock.close()
+                run_direct_bytes = self._run_direct_speed_test(server_ip, server_port)
 
-                    # 如果指定IP连接成功，使用该IP进行测试
-                    def thread_target():
-                        nonlocal run_direct_bytes
-                        bytes_received = self._tcp_socket_speed_test(server_ip, server_port, {})
-                        run_direct_bytes += bytes_received
-
-                    # 启动多个并发连接
-                    threads = []
-                    for _ in range(self.concurrent_connections):
-                        thread = threading.Thread(target=thread_target)
-                        threads.append(thread)
-                        thread.start()
-
-                    # 等待所有线程完成
-                    for thread in threads:
-                        thread.join()
-
-                except Exception as e:
-                    # 连接失败，继续使用速度测试服务器
-                    pass
-
-                # 速度测试服务器测试
                 if self.speed_test_method in ["server", "both"]:
-                    # 并行从多个速度测试服务器下载
-                    import concurrent.futures
-                    import random
-
-                    # 随机选择服务器，避免固定服务器的影响
-                    selected_servers = random.sample(speed_test_servers, min(3, len(speed_test_servers)))
-                    
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                        future_to_server = {
-                            executor.submit(self._download_from_server, host, port, path): (host, port, path)
-                            for host, port, path in selected_servers
-                        }
-
-                        for future in concurrent.futures.as_completed(future_to_server):
-                            try:
-                                received_bytes = future.result()
-                                run_server_bytes += received_bytes
-                            except Exception:
-                                continue
+                    run_server_bytes = self._run_server_speed_test(speed_test_servers)
 
                 run_end = time.time()
                 run_duration = run_end - run_start
                 total_duration += run_duration
                 total_bytes += run_direct_bytes + run_server_bytes
 
-                # 计算本次测试的速率
                 if run_duration > 0:
                     if run_direct_bytes >= self.min_valid_data:
-                        run_direct_speed = (run_direct_bytes / run_duration) * 8 / 10**6
-                        run_direct_speed = min(run_direct_speed, 700.0)
+                        run_direct_speed = min((run_direct_bytes / run_duration) * 8 / 10**6, 700.0)
                         all_direct_speeds.append(run_direct_speed)
                     if run_server_bytes >= self.min_valid_data:
-                        run_server_speed = (run_server_bytes / run_duration) * 8 / 10**6
-                        run_server_speed = min(run_server_speed, 700.0)
+                        run_server_speed = min((run_server_bytes / run_duration) * 8 / 10**6, 700.0)
                         all_server_speeds.append(run_server_speed)
 
-            # 计算平均测试时长
             results["duration"] = total_duration / test_runs if test_runs > 0 else 0
             results["bytes_received"] = total_bytes
 
-            # 计算直接连接速率（去除异常值）
-            direct_speed = 0
-            if all_direct_speeds:
-                # 对结果进行排序，去除最大值和最小值
-                all_direct_speeds.sort()
-                filtered_speeds = all_direct_speeds
-                if len(filtered_speeds) > 2:
-                    filtered_speeds = all_direct_speeds[1:-1]
-                direct_speed = round(sum(filtered_speeds) / len(filtered_speeds), 2)
-                direct_speed = max(direct_speed, self.min_speed)
-            results["direct_speed"] = direct_speed
+            results["direct_speed"] = self._calculate_filtered_speed(all_direct_speeds)
+            results["server_speed"] = self._calculate_filtered_speed(all_server_speeds)
 
-            # 计算速度测试服务器速率（去除异常值）
-            server_speed = 0
-            if all_server_speeds:
-                # 对结果进行排序，去除最大值和最小值
-                all_server_speeds.sort()
-                filtered_speeds = all_server_speeds
-                if len(filtered_speeds) > 2:
-                    filtered_speeds = all_server_speeds[1:-1]
-                server_speed = round(sum(filtered_speeds) / len(filtered_speeds), 2)
-                server_speed = max(server_speed, self.min_speed)
-            results["server_speed"] = server_speed
-
-            # 确定最终显示的速率
             if self.speed_test_method == "direct":
-                # 仅使用直接连接速率
-                results["speed_mbps"] = direct_speed
-                results["success"] = direct_speed >= self.min_speed
+                results["speed_mbps"] = results["direct_speed"]
+                results["success"] = results["direct_speed"] >= self.min_speed
             elif self.speed_test_method == "server":
-                # 仅使用速度测试服务器速率
-                results["speed_mbps"] = server_speed
-                results["success"] = server_speed >= self.min_speed
+                results["speed_mbps"] = results["server_speed"]
+                results["success"] = results["server_speed"] >= self.min_speed
             else:
-                # 使用两种速率中的较高值
-                results["speed_mbps"] = max(direct_speed, server_speed)
-                results["success"] = direct_speed >= self.min_speed or server_speed >= self.min_speed
+                results["speed_mbps"] = max(results["direct_speed"], results["server_speed"])
+                results["success"] = results["direct_speed"] >= self.min_speed or results["server_speed"] >= self.min_speed
 
-            # 如果所有方法都失败，使用ping延迟来估算网络质量
             if results["speed_mbps"] < self.min_speed:
                 estimated_speed = self._estimate_speed_from_ping(server_ip)
                 results["speed_mbps"] = estimated_speed
@@ -750,15 +776,13 @@ class SpeedTest:
                             break
                         total_bytes += sent
 
-                except Exception:
-                    # 异常时pass，但确保socket被关闭
+                except (socket.error, OSError, ConnectionResetError, ConnectionRefusedError):
                     pass
                 finally:
                     if sock:
                         try:
                             sock.close()
-                        except Exception:
-                            # 忽略关闭socket时的异常
+                        except (OSError, socket.error):
                             pass
 
             # 启动多个并发连接
