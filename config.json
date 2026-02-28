@@ -215,7 +215,5 @@
             "speed_test": true
         }
     },
-    "log_level": "INFO",
-    "init_skipped": false,
-    "init_skip_time": ""
+    "log_level": "INFO"
 }

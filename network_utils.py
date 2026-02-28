@@ -6,6 +6,7 @@ import platform
 import time
 import concurrent.futures
 import socket
+import ssl
 import threading
 from typing import Dict, Any, List, Optional, Tuple
 from terminal_utils import TerminalUtils, Color
@@ -271,12 +272,27 @@ class PingTest:
                     error_messages.append(system_result["error"])
             else:
                 # 使用基于socket的ICMP ping
+                permission_error = False
                 for _ in range(self.count):
                     ping_result = self._icmp_ping(ip)
                     if ping_result["success"]:
                         delays.append(ping_result["delay"])
                     if ping_result.get("error"):
                         error_messages.append(ping_result["error"])
+                        # 检测权限错误，用于回退到系统ping
+                        if "权限不足" in ping_result.get("error", ""):
+                            permission_error = True
+
+                # 如果遇到权限错误且没有成功的ping，回退到系统ping
+                if permission_error and not delays:
+                    system_result = self._system_ping(ip)
+                    delays = system_result["delays"]
+                    results["success"] = system_result["success"]
+                    results["method"] = "system_fallback"
+                    if system_result.get("error"):
+                        error_messages = [system_result["error"]]
+                    else:
+                        error_messages = []
 
                 if delays:
                     results["success"] = True
@@ -402,6 +418,11 @@ class SpeedTest:
             sock.settimeout(5)
             sock.connect(sockaddr)
 
+            # 如果是HTTPS端口，包装SSL
+            if port == 443:
+                context = ssl.create_default_context()
+                sock = context.wrap_socket(sock, server_hostname=host)
+
             # 发送HTTP GET请求获取大文件
             request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0\r\nConnection: keep-alive\r\n\r\n"
             sock.sendall(request.encode())
@@ -433,6 +454,8 @@ class SpeedTest:
         except OSError:
             pass
         except (socket.gaierror, socket.herror):
+            pass
+        except ssl.SSLError:
             pass
         return bytes_received
 
@@ -559,13 +582,7 @@ class SpeedTest:
             List[Tuple[str, int, str]]: 服务器列表，每项为 (主机, 端口, 路径)
         """
         return [
-            ("speed.cloudflare.com", 80, "/__down?bytes=20971520"),
-            ("speed.cloudflare.com", 443, "/__down?bytes=20971520"),
-            ("httpbin.org", 80, "/stream/20"),
-            ("ipv6.speed.cloudflare.com", 80, "/__down?bytes=20971520"),
-            ("download.thinkbroadband.com", 80, "/5MB.zip"),
-            ("ipv4.download.thinkbroadband.com", 80, "/5MB.zip"),
-            ("ipv6.download.thinkbroadband.com", 80, "/5MB.zip"),
+            ("speed.cloudflare.com", 443, "/__down?bytes=30000000"),
         ]
 
     def _run_direct_speed_test(self, server_ip: str, server_port: int) -> int:
@@ -723,9 +740,8 @@ class SpeedTest:
                 results["success"] = results["direct_speed"] >= self.min_speed or results["server_speed"] >= self.min_speed
 
             if results["speed_mbps"] < self.min_speed:
-                estimated_speed = self._estimate_speed_from_ping(server_ip)
-                results["speed_mbps"] = estimated_speed
-                results["success"] = estimated_speed >= self.min_speed
+                results["speed_mbps"] = 0
+                results["success"] = False
 
         except Exception as e:
             results["error"] = str(e)
